@@ -28,3 +28,7 @@ Icon?
 # IDE
 .vscode/
 .idea/mcp/node_modules/
+
+# Memory bank & instructions Claude (local uniquement)
+memory-bank/
+CLAUDE.md

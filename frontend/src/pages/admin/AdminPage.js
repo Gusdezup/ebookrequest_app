@@ -99,9 +99,7 @@ function AdminPage() {
   const [file, setFile] = useState(null);
   const [cancelingRequest, setCancelingRequest] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
-  const [predbResults, setPredbResults] = useState({});
-  const [checkingPredb, setCheckingPredb] = useState(new Set());
-  const [editingComment, setEditingComment] = useState(null);  // utilisé uniquement pour l'historique
+const [editingComment, setEditingComment] = useState(null);  // utilisé uniquement pour l'historique
   const [commentValue, setCommentValue] = useState('');
   const [commentModal, setCommentModal] = useState(null); // request._id en cours de commentaire admin
   const [threadModal, setThreadModal] = useState(null); // request object pour le fil
@@ -562,20 +560,6 @@ function AdminPage() {
     }
   };
 
-  const handlePredbCheck = async (request) => {
-    setCheckingPredb(prev => new Set([...prev, request._id]));
-    try {
-      const response = await axiosAdmin.post('/api/availability/check', {
-        title: request.title,
-        author: request.author
-      });
-      setPredbResults(prev => ({ ...prev, [request._id]: response.data }));
-    } catch (error) {
-      setPredbResults(prev => ({ ...prev, [request._id]: { confidence: 'unknown', message: 'Erreur lors de la vérification' } }));
-    } finally {
-      setCheckingPredb(prev => { const next = new Set(prev); next.delete(request._id); return next; });
-    }
-  };
 
   const handleSaveComment = async (id) => {
     try {
@@ -904,7 +888,6 @@ function AdminPage() {
                 {paginated.map(request => {
                   const isExpanded = expandedCards.has(request._id)
                     || cancelingRequest === request._id
-                    || !!predbResults[request._id]
                     || expandedTableRows.has(request._id);
                   return (
                     <React.Fragment key={request._id}>
@@ -1030,25 +1013,6 @@ function AdminPage() {
                                   <div className={styles.reportLabel}>Motif : {request.cancelReason}</div>
                                 </div>
                               )}
-                              {predbResults[request._id] && (
-                                <div className={`${styles.predbResult} ${
-                                  predbResults[request._id].confidence === 'high' ? styles.predbHigh :
-                                  predbResults[request._id].confidence === 'medium' ? styles.predbMedium :
-                                  predbResults[request._id].confidence === 'low' ? styles.predbLow :
-                                  styles.predbUnknown
-                                }`}>
-                                  <span className={styles.predbIcon}>
-                                    {predbResults[request._id].confidence === 'high' && '✓'}
-                                    {predbResults[request._id].confidence === 'medium' && '⚡'}
-                                    {predbResults[request._id].confidence === 'low' && '⏱'}
-                                    {predbResults[request._id].confidence === 'unknown' && '?'}
-                                  </span>
-                                  <span>{predbResults[request._id].message}</span>
-                                  {predbResults[request._id].match?.rssTitle && (
-                                    <div className={styles.predbMatch}>{predbResults[request._id].match.rssTitle}</div>
-                                  )}
-                                </div>
-                              )}
                               {request.adminComment && (
                                 <div className={styles.existingComment}>
                                   <span className={styles.commentLabel}>Note admin :</span> {request.adminComment}
@@ -1124,10 +1088,6 @@ function AdminPage() {
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="12 18 12 12"/><polyline points="9 15 12 12 15 15"/></svg>
                                   </button>
                                 )}
-                                <button className={styles.aIconBtn} title="Chercher sur PreDB"
-                                  onClick={() => handlePredbCheck(request)} disabled={checkingPredb.has(request._id)}>
-                                  {checkingPredb.has(request._id) ? <span className={styles.spinner}/> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>}
-                                </button>
                                 {request.status === 'pending' && (
                                   <button className={`${styles.aIconBtn} ${styles.aIconBtnValentine}`}
                                     title="Rechercher sur les connecteurs"
@@ -1243,8 +1203,6 @@ function AdminPage() {
             {paginated.map(request => {
               const isExpanded = expandedCards.has(request._id)
                 || cancelingRequest === request._id
-                || !!predbResults[request._id];
-
               return (
               <div key={request._id}
                 ref={el => { cardRefs.current[request._id] = el; }}
@@ -1400,26 +1358,6 @@ function AdminPage() {
                         </div>
                       )}
 
-                      {predbResults[request._id] && (
-                        <div className={`${styles.predbResult} ${
-                          predbResults[request._id].confidence === 'high' ? styles.predbHigh :
-                          predbResults[request._id].confidence === 'medium' ? styles.predbMedium :
-                          predbResults[request._id].confidence === 'low' ? styles.predbLow :
-                          styles.predbUnknown
-                        }`}>
-                          <span className={styles.predbIcon}>
-                            {predbResults[request._id].confidence === 'high' && '✓'}
-                            {predbResults[request._id].confidence === 'medium' && '⚡'}
-                            {predbResults[request._id].confidence === 'low' && '⏱'}
-                            {predbResults[request._id].confidence === 'unknown' && '?'}
-                          </span>
-                          <span>{predbResults[request._id].message}</span>
-                          {predbResults[request._id].match?.rssTitle && (
-                            <div className={styles.predbMatch}>{predbResults[request._id].match.rssTitle}</div>
-                          )}
-                        </div>
-                      )}
-
                       {request.adminComment && (
                         <div className={styles.existingComment}>
                           <span className={styles.commentLabel}>Note admin :</span> {request.adminComment}
@@ -1497,10 +1435,6 @@ function AdminPage() {
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="12 18 12 12"/><polyline points="9 15 12 12 15 15"/></svg>
                           </button>
                         )}
-                        <button className={styles.aIconBtn} title="Chercher sur PreDB"
-                          onClick={() => handlePredbCheck(request)} disabled={checkingPredb.has(request._id)}>
-                          {checkingPredb.has(request._id) ? <span className={styles.spinner}/> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>}
-                        </button>
                         {request.status === 'pending' && (
                           <button className={`${styles.aIconBtn} ${styles.aIconBtnValentine}`}
                             title="Rechercher sur les connecteurs"

@@ -1,6 +1,5 @@
 import express from 'express';
 import { checkBookAvailability } from '../services/rssService.js';
-import { checkBookAvailabilityViaApi } from '../services/predbApiService.js';
 import { searchOnValentine } from '../services/valentineService.js';
 import { searchOnAnnasArchive } from '../services/annasArchiveService.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -25,26 +24,16 @@ router.post('/check', requireAuth, async (req, res) => {
       });
     }
 
-    // Lancer les 4 sources en parallèle
-    const [predbRssResult, predbApiResult, valentineResult, annasResult] = await Promise.allSettled([
+    // Lancer les 3 sources en parallèle
+    const [predbRssResult, valentineResult, annasResult] = await Promise.allSettled([
       checkBookAvailability(title, author),
-      withTimeout(checkBookAvailabilityViaApi(title, author), 10000),
       withTimeout(searchOnValentine(title), 5000),
       withTimeout(searchOnAnnasArchive(title), 5000),
     ]);
 
-    const predbRss = predbRssResult.status === 'fulfilled'
+    const predb = predbRssResult.status === 'fulfilled'
       ? predbRssResult.value
       : { available: false, confidence: 'unknown', message: 'Impossible de vérifier la disponibilité pour le moment', score: 0 };
-
-    const predbApi = predbApiResult.status === 'fulfilled' ? predbApiResult.value : null;
-
-    // Garder le meilleur résultat entre les deux sources PreDB
-    const useApi = predbApi && (predbApi.score ?? 0) > (predbRss.score ?? 0);
-    const predb = useApi
-      ? { ...predbApi, message: predbApi.available ? 'Ce livre semble disponible ! Votre demande devrait être traitée rapidement.' : 'Ce livre ne semble pas immédiatement disponible.' }
-      : predbRss;
-    const predbSource = useApi ? 'predb.fr' : 'predb.me';
 
     const valentineFound = valentineResult.status === 'fulfilled'
       && Array.isArray(valentineResult.value)
@@ -67,8 +56,7 @@ router.post('/check', requireAuth, async (req, res) => {
     const sources = [];
     if (valentineFound) sources.push('Valentine');
     if (annasFound) sources.push("Anna's Archive");
-    if (predbRss.match && (predbRss.score ?? 0) > 0) sources.push('predb.me');
-    if (predbApi?.match && (predbApi.score ?? 0) > 0) sources.push('predb.fr');
+    if (predb.match && (predb.score ?? 0) > 0) sources.push('predb.me');
 
     return res.json({
       success: true,
