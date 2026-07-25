@@ -1,4 +1,4 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import axiosAdmin from '../axiosAdmin';
 import styles from './GoogleBooksSearch.module.css';
 import BarcodeScanner from './BarcodeScanner';
@@ -72,7 +72,7 @@ const PLACEHOLDERS = {
   series: 'Nom de la série…',
 };
 
-const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting = false }) => {
+const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting = false, batchProgress = null }) => {
   const [searchMode, setSearchMode]   = useState('title');
   const [value, setValue]             = useState('');
   const [scanning, setScanning]       = useState(false);
@@ -207,6 +207,13 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
     }
   };
 
+  // Vider la sélection quand l'envoi batch se termine
+  useEffect(() => {
+    if (!batchSubmitting && selectedBooks.size > 0) {
+      setSelectedBooks(new Map());
+    }
+  }, [batchSubmitting]);
+
   // ─── Sélection batch ──────────────────────────────────────────────────────
   const toggleSelect = (e, book) => {
     e.stopPropagation();
@@ -220,7 +227,6 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
   const handleBatchRequest = () => {
     if (!onBatchSelectBooks) return;
     onBatchSelectBooks([...selectedBooks.values()]);
-    setSelectedBooks(new Map());
   };
 
   // ─── Sélection d'un livre ─────────────────────────────────────────────────
@@ -339,19 +345,38 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
           <>
             {onBatchSelectBooks && selectedBooks.size > 0 && (
               <div className={styles.batchBar}>
-                <span className={styles.batchCount}>{selectedBooks.size} livre{selectedBooks.size > 1 ? 's' : ''} sélectionné{selectedBooks.size > 1 ? 's' : ''}</span>
-                <button className={styles.batchBtn} onClick={handleBatchRequest} disabled={batchSubmitting}>
-                  {batchSubmitting ? (
-                    <>
-                      <svg className={styles.spinIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                      </svg>
-                      Envoi en cours…
-                    </>
-                  ) : `Demander les ${selectedBooks.size} livres`}
-                </button>
-                {!batchSubmitting && (
-                  <button className={styles.batchClear} onClick={() => setSelectedBooks(new Map())}>Tout désélectionner</button>
+                {batchSubmitting && batchProgress ? (
+                  <>
+                    <svg className={styles.spinIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                    </svg>
+                    <span className={styles.batchCount}>
+                      Envoi en cours… {batchProgress.current}/{batchProgress.total}
+                    </span>
+                    <div className={styles.batchProgressBar}>
+                      <div
+                        className={styles.batchProgressFill}
+                        style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className={styles.batchCount}>{selectedBooks.size} livre{selectedBooks.size > 1 ? 's' : ''} sélectionné{selectedBooks.size > 1 ? 's' : ''}</span>
+                    <button className={styles.batchBtn} onClick={handleBatchRequest} disabled={batchSubmitting}>
+                      {batchSubmitting ? (
+                        <>
+                          <svg className={styles.spinIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                          </svg>
+                          Envoi en cours…
+                        </>
+                      ) : `Demander les ${selectedBooks.size} livres`}
+                    </button>
+                    {!batchSubmitting && (
+                      <button className={styles.batchClear} onClick={() => setSelectedBooks(new Map())}>Tout désélectionner</button>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -381,7 +406,12 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
                       )}
                     </div>
                     <div className={styles.bookInfo}>
-                      <h4>{book.volumeInfo.title}</h4>
+                      <div className={styles.bookTitleRow}>
+                        <h4>{book.volumeInfo.title}</h4>
+                        {book.id?.startsWith('ol-') && (
+                          <span className={styles.olBadge} title="Résultat Open Library — le lien de la demande pointera vers openlibrary.org">OL</span>
+                        )}
+                      </div>
                       {book.volumeInfo.authors && (
                         <p className={styles.bookAuthor}>{book.volumeInfo.authors.join(', ')}</p>
                       )}

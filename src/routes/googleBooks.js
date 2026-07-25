@@ -4,21 +4,28 @@ import axios from 'axios';
 const router = express.Router();
 
 function authorVariants(name) {
+  const norm = s => s.replace(/\s+/g, ' ').trim();
   const variants = new Set();
+
   variants.add(name);
-  // tirets → espaces (Jean-Christophe → Jean Christophe)
+  // tirets → espaces
   const noHyphen = name.replace(/-/g, ' ');
   variants.add(noHyphen);
-  // apostrophes → espace (d'Ormesson → d Ormesson)
+  // apostrophes → espace
   const noApos = name.replace(/['']/g, ' ');
   variants.add(noApos);
-  // points supprimés (J.K. → JK)
+  // espaces après un point supprimés : "J. K." → "J.K."
+  const compactDots = name.replace(/\.\s+/g, '.');
+  variants.add(compactDots);
+  // points supprimés entièrement : "J.K." → "JK", "J. K." → "J K"
   const noDots = name.replace(/\./g, '');
   variants.add(noDots);
-  // combinaison tirets + apostrophes
+  // compact sans points : "J.K. Rowling" → "JK Rowling"
+  variants.add(compactDots.replace(/\./g, ''));
+  // combinaisons tirets + apostrophes
   variants.add(noHyphen.replace(/['']/g, ' '));
-  // normaliser les espaces multiples
-  return [...variants].map(v => v.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+  return [...variants].map(norm).filter(Boolean);
 }
 const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY || '';
 
@@ -165,6 +172,26 @@ async function fetchFromOpenLibrarySearch(q, limit) {
     timeout: 8000,
   });
   return (res.data.docs || []).map(normalizeOpenLibrarySearch);
+}
+
+async function fetchFromOpenLibraryAuthor(author, limit = 40) {
+  const variants = authorVariants(author);
+  for (const v of variants) {
+    try {
+      const res = await axios.get('https://openlibrary.org/search.json', {
+        params: {
+          author: v,
+          language: 'fre',
+          limit,
+          fields: 'key,title,author_name,cover_i,first_publish_year,number_of_pages_median,language',
+        },
+        timeout: 8000,
+      });
+      const docs = res.data.docs || [];
+      if (docs.length > 0) return docs.map(normalizeOpenLibrarySearch);
+    } catch {}
+  }
+  return [];
 }
 
 function formatPool(items) {
@@ -323,20 +350,18 @@ router.get('/search', async (req, res) => {
     let totalItems = 0;
 
     if (authorOnly) {
-      // Pool auteur seul : fetcher 40 depuis offset 0, filtrer FR,
-      // trier par date, mettre en cache le pool entier, paginer dedans.
-      // → totalItems = taille réelle du pool filtré (pas le total Google toutes langues)
       let pool = [];
       for (const queryStr of queries) {
         const result = await fetchFromGoogle(queryStr, 40, 0, { langRestrict: 'fr' });
-        if (result.items.length > 0) {
-          pool = result.items;
-          break;
-        }
+        if (result.items.length > 0) { pool = result.items; break; }
       }
       pool = pool.filter(item =>
         !item.volumeInfo?.language || item.volumeInfo.language === 'fr'
       );
+      // Fallback Open Library si Google Books ne trouve rien en français
+      if (pool.length === 0) {
+        pool = await fetchFromOpenLibraryAuthor(author.trim());
+      }
       pool.sort((a, b) => {
         const yearA = parseInt((a.volumeInfo?.publishedDate || '').slice(0, 4)) || 0;
         const yearB = parseInt((b.volumeInfo?.publishedDate || '').slice(0, 4)) || 0;

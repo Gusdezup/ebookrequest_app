@@ -120,6 +120,7 @@ function UserForm() {
   });
   const [message, setMessage] = useState({ text: '', type: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [searchMode, setSearchMode] = useState('google');
   const [selectedBook, setSelectedBook] = useState(null);
@@ -565,14 +566,19 @@ function UserForm() {
     if (!books?.length) return;
     setIsSubmitting(true);
     setMessage({ text: '', type: '' });
+    setBatchProgress({ current: 0, total: books.length });
 
     let ok = 0;
     let skipped = 0;
     const errors = [];
 
-    for (const book of books) {
+    for (let i = 0; i < books.length; i++) {
+      const book   = books[i];
       const title  = book.volumeInfo?.title || '';
       const author = book.volumeInfo?.authors?.[0] || '';
+
+      setBatchProgress({ current: i + 1, total: books.length });
+
       if (!title || !author) { skipped++; continue; }
 
       const isDuplicate = existingRequests.some(req =>
@@ -611,6 +617,7 @@ function UserForm() {
       type: errors.length > 0 && ok === 0 ? 'error' : 'success',
     });
 
+    setBatchProgress(null);
     setIsSubmitting(false);
   }, [existingRequests, isAdmin, targetUserId]);
 
@@ -738,7 +745,7 @@ function UserForm() {
 
       {/* GoogleBooksSearch toujours monté pour préserver les résultats */}
       <div style={{ display: searchMode === 'google' && !selectedBook ? 'block' : 'none' }}>
-        <GoogleBooksSearch onSelectBook={handleBookSelect} onBatchSelectBooks={handleBatchSelectBooks} batchSubmitting={isSubmitting} />
+        <GoogleBooksSearch onSelectBook={handleBookSelect} onBatchSelectBooks={handleBatchSelectBooks} batchSubmitting={isSubmitting} batchProgress={batchProgress} />
       </div>
 
       {searchMode === 'google' && selectedBook && (
