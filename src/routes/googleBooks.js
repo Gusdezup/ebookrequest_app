@@ -2,6 +2,24 @@ import express from 'express';
 import axios from 'axios';
 
 const router = express.Router();
+
+function authorVariants(name) {
+  const variants = new Set();
+  variants.add(name);
+  // tirets → espaces (Jean-Christophe → Jean Christophe)
+  const noHyphen = name.replace(/-/g, ' ');
+  variants.add(noHyphen);
+  // apostrophes → espace (d'Ormesson → d Ormesson)
+  const noApos = name.replace(/['']/g, ' ');
+  variants.add(noApos);
+  // points supprimés (J.K. → JK)
+  const noDots = name.replace(/\./g, '');
+  variants.add(noDots);
+  // combinaison tirets + apostrophes
+  variants.add(noHyphen.replace(/['']/g, ' '));
+  // normaliser les espaces multiples
+  return [...variants].map(v => v.replace(/\s+/g, ' ').trim()).filter(Boolean);
+}
 const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY || '';
 
 // Cache en mémoire : clé = "params", valeur = { data, expiresAt }
@@ -290,7 +308,11 @@ router.get('/search', async (req, res) => {
         q.trim(),
       ];
     } else if (authorOnly) {
-      queries = [`inauthor:"${author.trim()}"`, author.trim()];
+      const variants = authorVariants(author.trim());
+      queries = [
+        ...variants.map(v => `inauthor:"${v}"`),
+        ...variants,
+      ];
     } else if (combined === 'true' && q?.trim()) {
       queries = buildCombinedQueries(q);
     } else {

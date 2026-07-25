@@ -72,10 +72,11 @@ const PLACEHOLDERS = {
   series: 'Nom de la série…',
 };
 
-const GoogleBooksSearch = ({ onSelectBook }) => {
+const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting = false }) => {
   const [searchMode, setSearchMode]   = useState('title');
   const [value, setValue]             = useState('');
   const [scanning, setScanning]       = useState(false);
+  const [selectedBooks, setSelectedBooks] = useState(new Map()); // id → book
 
   const [searchedValue, setSearchedValue] = useState('');
   const [searchedMode, setSearchedMode]   = useState('title');
@@ -173,6 +174,7 @@ const GoogleBooksSearch = ({ onSelectBook }) => {
     setHasSearched(false);
     setTotalItems(0);
     setPage(1);
+    setSelectedBooks(new Map());
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     setTimeout(() => inputRef.current?.focus(), 0);
   };
@@ -181,6 +183,7 @@ const GoogleBooksSearch = ({ onSelectBook }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    setSelectedBooks(new Map());
     searchBooks(value, searchMode, 1);
   };
 
@@ -195,13 +198,29 @@ const GoogleBooksSearch = ({ onSelectBook }) => {
     setValue(v);
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     if (v.trim().length >= MIN_LEN) {
-      searchTimeoutRef.current = setTimeout(() => searchBooks(v, searchMode, 1), 500);
+      searchTimeoutRef.current = setTimeout(() => { setSelectedBooks(new Map()); searchBooks(v, searchMode, 1); }, 500);
     } else if (v.trim().length === 0) {
       setResults([]);
       setTotalItems(0);
       setHasSearched(false);
       setPage(1);
     }
+  };
+
+  // ─── Sélection batch ──────────────────────────────────────────────────────
+  const toggleSelect = (e, book) => {
+    e.stopPropagation();
+    setSelectedBooks(prev => {
+      const next = new Map(prev);
+      next.has(book.id) ? next.delete(book.id) : next.set(book.id, book);
+      return next;
+    });
+  };
+
+  const handleBatchRequest = () => {
+    if (!onBatchSelectBooks) return;
+    onBatchSelectBooks([...selectedBooks.values()]);
+    setSelectedBooks(new Map());
   };
 
   // ─── Sélection d'un livre ─────────────────────────────────────────────────
@@ -318,35 +337,69 @@ const GoogleBooksSearch = ({ onSelectBook }) => {
           <LoadingSpinner />
         ) : results.length > 0 ? (
           <>
+            {onBatchSelectBooks && selectedBooks.size > 0 && (
+              <div className={styles.batchBar}>
+                <span className={styles.batchCount}>{selectedBooks.size} livre{selectedBooks.size > 1 ? 's' : ''} sélectionné{selectedBooks.size > 1 ? 's' : ''}</span>
+                <button className={styles.batchBtn} onClick={handleBatchRequest} disabled={batchSubmitting}>
+                  {batchSubmitting ? (
+                    <>
+                      <svg className={styles.spinIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                      </svg>
+                      Envoi en cours…
+                    </>
+                  ) : `Demander les ${selectedBooks.size} livres`}
+                </button>
+                {!batchSubmitting && (
+                  <button className={styles.batchClear} onClick={() => setSelectedBooks(new Map())}>Tout désélectionner</button>
+                )}
+              </div>
+            )}
             <div className={styles.booksGrid}>
-              {results.map((book) => (
-                <div key={book.id} className={styles.bookCard} onClick={() => handleSelectBook(book)}>
-                  <div className={styles.bookCover}>
-                    {book.volumeInfo.imageLinks?.thumbnail ? (
-                      <img src={book.volumeInfo.imageLinks.thumbnail} alt={book.volumeInfo.title} />
-                    ) : (
-                      <div className={styles.noCover}>📚<br /><span>Pas de couverture</span></div>
+              {results.map((book) => {
+                const isSelected = selectedBooks.has(book.id);
+                return (
+                  <div
+                    key={book.id}
+                    className={`${styles.bookCard} ${isSelected ? styles.bookCardSelected : ''}`}
+                    onClick={() => handleSelectBook(book)}
+                  >
+                    {onBatchSelectBooks && (
+                      <div className={styles.bookCheckbox} onClick={e => toggleSelect(e, book)}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          readOnly
+                        />
+                      </div>
                     )}
+                    <div className={styles.bookCover}>
+                      {book.volumeInfo.imageLinks?.thumbnail ? (
+                        <img src={book.volumeInfo.imageLinks.thumbnail} alt={book.volumeInfo.title} />
+                      ) : (
+                        <div className={styles.noCover}>📚<br /><span>Pas de couverture</span></div>
+                      )}
+                    </div>
+                    <div className={styles.bookInfo}>
+                      <h4>{book.volumeInfo.title}</h4>
+                      {book.volumeInfo.authors && (
+                        <p className={styles.bookAuthor}>{book.volumeInfo.authors.join(', ')}</p>
+                      )}
+                      {(book.volumeInfo.publishedDate || book.volumeInfo.pageCount) && (
+                        <p className={styles.bookMeta}>
+                          {book.volumeInfo.publishedDate && new Date(book.volumeInfo.publishedDate).getFullYear()}
+                          {book.volumeInfo.pageCount && ` · ${book.volumeInfo.pageCount} p.`}
+                        </p>
+                      )}
+                    </div>
+                    <div className={styles.bookChevron}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m9 18 6-6-6-6"/>
+                      </svg>
+                    </div>
                   </div>
-                  <div className={styles.bookInfo}>
-                    <h4>{book.volumeInfo.title}</h4>
-                    {book.volumeInfo.authors && (
-                      <p className={styles.bookAuthor}>{book.volumeInfo.authors.join(', ')}</p>
-                    )}
-                    {(book.volumeInfo.publishedDate || book.volumeInfo.pageCount) && (
-                      <p className={styles.bookMeta}>
-                        {book.volumeInfo.publishedDate && new Date(book.volumeInfo.publishedDate).getFullYear()}
-                        {book.volumeInfo.pageCount && ` · ${book.volumeInfo.pageCount} p.`}
-                      </p>
-                    )}
-                  </div>
-                  <div className={styles.bookChevron}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m9 18 6-6-6-6"/>
-                    </svg>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {totalPages > 1 && (
               <div className={styles.pagination}>

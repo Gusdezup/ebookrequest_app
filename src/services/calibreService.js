@@ -108,7 +108,10 @@ export async function pushToCalibre(user, filePath, bookTitle) {
       ? uploadRes.data.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)
       : JSON.stringify(uploadRes.data).slice(0, 300);
     console.error(`[Calibre] Réponse upload: ${body}`);
-    throw new Error(`Upload échoué: HTTP ${uploadRes.status}`);
+    const hint = uploadRes.status === 403
+      ? 'Upload échoué: HTTP 403 — vérifiez que le compte Calibre-Web a la permission "Upload books" activée'
+      : `Upload échoué: HTTP ${uploadRes.status}`;
+    throw new Error(hint);
   }
 
   // 4. Extraire l'ID du livre

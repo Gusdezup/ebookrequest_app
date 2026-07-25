@@ -119,8 +119,7 @@ const UserManagement = () => {
   const validateForm = () => {
     const newErrors = {};
     if (!formData.username.trim()) newErrors.username = 'Le nom est requis';
-    if (!formData.email) newErrors.email = 'L\'email est requis';
-    else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email invalide';
+    if (formData.email && !/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email invalide';
     if (!formData._id || formData.password) {
       if (!formData.password) newErrors.password = 'Le mot de passe est requis';
       else if (formData.password.length < 8) newErrors.password = 'Minimum 8 caractères';
@@ -386,9 +385,9 @@ const UserManagement = () => {
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label>Email *</label>
+                    <label>Email</label>
                     <input type="email" name="email" value={formData.email} onChange={handleInputChange}
-                      className={`${styles.formInput} ${errors.email ? styles.inputError : ''}`} placeholder="email@exemple.com" />
+                      className={`${styles.formInput} ${errors.email ? styles.inputError : ''}`} placeholder="email@exemple.com (optionnel)" />
                     {errors.email && <span className={styles.errorText}>{errors.email}</span>}
                   </div>
 
