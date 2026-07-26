@@ -327,8 +327,21 @@ export async function testCalibreConnection({ url, username, password }) {
 
   const cleanUrl = url.replace(/\/$/, '');
   try {
-    await getSessionCookie(cleanUrl, username, password);
-    return { connected: true };
+    const cookie = await getSessionCookie(cleanUrl, username, password);
+
+    // Vérifier la permission Upload via GET /upload
+    const uploadCheck = await axios.get(`${cleanUrl}/upload`, {
+      headers: { Cookie: cookie },
+      timeout: TIMEOUT,
+      maxRedirects: 0,
+      validateStatus: s => s < 500,
+    });
+
+    if (uploadCheck.status === 403) {
+      return { connected: true, uploadAllowed: false, warning: 'Connexion réussie mais le compte n\'a pas la permission "Upload books" dans Calibre-Web.' };
+    }
+
+    return { connected: true, uploadAllowed: true };
   } catch (err) {
     const msg = err.response
       ? `HTTP ${err.response.status} — ${err.response.statusText}`

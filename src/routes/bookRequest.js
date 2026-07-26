@@ -176,7 +176,11 @@ router.post('/:id/convert', requireAuth, async (req, res) => {
     const { default: fs } = await import('fs');
     const { fileURLToPath } = await import('url');
     const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
-    const srcPath = path.join(__dirname2, '../../uploads', request.filePath);
+    const uploadsDir = path.resolve(__dirname2, '../../uploads');
+    const srcPath = path.join(uploadsDir, request.filePath);
+    if (!srcPath.startsWith(uploadsDir + path.sep)) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
 
     if (!fs.existsSync(srcPath)) return res.status(404).json({ error: 'Fichier source introuvable sur le serveur' });
 

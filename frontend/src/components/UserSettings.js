@@ -1357,15 +1357,26 @@ const UserSettings = () => {
 
           {/* Test result */}
           {calibreTestResult && (
-            <p style={{
-              margin: '0.5rem 0 0',
-              fontSize: '0.83rem',
-              color: calibreTestResult.connected ? 'var(--color-success, #10b981)' : 'var(--color-danger, #ef4444)',
-            }}>
-              {calibreTestResult.connected
-                ? '✓ Connecté avec succès'
-                : `✗ ${calibreTestResult.error || 'Connexion échouée'}`}
-            </p>
+            <>
+              <p style={{
+                margin: '0.5rem 0 0',
+                fontSize: '0.83rem',
+                color: calibreTestResult.connected
+                  ? calibreTestResult.uploadAllowed === false ? 'var(--color-warning, #f59e0b)' : 'var(--color-success, #10b981)'
+                  : 'var(--color-danger, #ef4444)',
+              }}>
+                {calibreTestResult.connected
+                  ? calibreTestResult.uploadAllowed === false
+                    ? '⚠ Connecté mais permission "Upload books" manquante'
+                    : '✓ Connecté avec succès — upload autorisé'
+                  : `✗ ${calibreTestResult.error || 'Connexion échouée'}`}
+              </p>
+              {calibreTestResult.warning && (
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                  {calibreTestResult.warning}
+                </p>
+              )}
+            </>
           )}
 
           <div className={styles.cardActions} style={{ gap: '0.5rem' }}>
