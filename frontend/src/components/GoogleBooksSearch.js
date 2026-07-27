@@ -343,6 +343,9 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
           <LoadingSpinner />
         ) : results.length > 0 ? (
           <>
+            {onBatchSelectBooks && selectedBooks.size === 0 && (
+              <p className={styles.batchHint}>Cliquez sur les couvertures pour sélectionner plusieurs livres à demander en une fois</p>
+            )}
             {onBatchSelectBooks && selectedBooks.size > 0 && (
               <div className={styles.batchBar}>
                 {batchSubmitting && batchProgress ? (
@@ -389,20 +392,24 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
                     className={`${styles.bookCard} ${isSelected ? styles.bookCardSelected : ''}`}
                     onClick={() => handleSelectBook(book)}
                   >
-                    {onBatchSelectBooks && (
-                      <div className={styles.bookCheckbox} onClick={e => toggleSelect(e, book)}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          readOnly
-                        />
-                      </div>
-                    )}
                     <div className={styles.bookCover}>
                       {book.volumeInfo.imageLinks?.thumbnail ? (
                         <img src={book.volumeInfo.imageLinks.thumbnail} alt={book.volumeInfo.title} />
                       ) : (
                         <div className={styles.noCover}>📚<br /><span>Pas de couverture</span></div>
+                      )}
+                      {onBatchSelectBooks && (
+                        <div
+                          className={`${styles.selectCircle} ${isSelected ? styles.selectCircleActive : ''}`}
+                          onClick={e => toggleSelect(e, book)}
+                          title={isSelected ? 'Désélectionner' : 'Sélectionner'}
+                        >
+                          {isSelected && (
+                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="2,6 5,9 10,3"/>
+                            </svg>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className={styles.bookInfo}>
