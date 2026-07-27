@@ -3,6 +3,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axiosAdmin from '../../axiosAdmin';
 import { toast } from 'react-toastify';
+import { useSocket } from '../../hooks/useSocket';
 import 'react-toastify/dist/ReactToastify.css';
 import styles from './UserDashboard.module.css';
 import BookPreviewModal from '../../components/BookPreviewModal';
@@ -372,6 +373,8 @@ const UserDashboard = () => {
     const intervalId = setInterval(silentRefresh, 30000);
     return () => clearInterval(intervalId);
   }, [filter]); // eslint-disable-line
+
+  useSocket('request:updated', () => silentRefresh());
 
   useEffect(() => {
     setCurrentPage(1);

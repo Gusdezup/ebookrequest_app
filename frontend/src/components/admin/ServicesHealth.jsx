@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axiosAdmin from '../../axiosAdmin';
 import styles from './ServicesHealth.module.css';
+import { useSocketStatus } from '../../hooks/useSocket';
 
 const SERVICE_DEFS = [
   {
@@ -116,11 +117,19 @@ const formatCheckedAt = (iso) => {
   return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 };
 
+const WS_ICON = (
+  <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+    <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/>
+  </svg>
+);
+
 const ServicesHealth = () => {
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const wsConnected = useSocketStatus();
 
   const fetchHealth = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -183,6 +192,22 @@ const ServicesHealth = () => {
       </div>
 
       <div className={styles.grid}>
+        <div className={styles.card}>
+          <div className={styles.cardIcon}>{WS_ICON}</div>
+          <div className={styles.cardBody}>
+            <div className={styles.cardTop}>
+              <span className={styles.cardName}>WebSocket</span>
+              <span className={styles.dotWrap}>
+                {wsConnected && <span className={styles.dotPing} />}
+                <span className={`${styles.dot} ${wsConnected ? styles.dotOk : styles.dotError}`} />
+              </span>
+            </div>
+            <ul className={styles.details}>
+              <li>{wsConnected ? 'Connexion temps réel active' : 'Non connecté — polling actif'}</li>
+            </ul>
+          </div>
+        </div>
+
         {SERVICE_DEFS.map((def) => {
           const s = services[def.key];
           if (!s) return null;

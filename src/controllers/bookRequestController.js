@@ -5,6 +5,7 @@ import AdminLog from '../models/AdminLog.js';
 import ReadingList from '../models/ReadingList.js';
 import { sendPushToUser } from '../services/webPushService.js';
 import { downloadWithFallback } from '../services/connectorOrchestrator.js';
+import { emitToUser, emitToAdmins } from '../services/socketService.js';
 
 const logAdminAction = async (adminId, adminUsername, action, request, details = '') => {
   try {
@@ -358,6 +359,7 @@ export const updateRequestStatus = async (req, res) => {
           console.error('Erreur lors de l\'envoi de l\'email d\'annulation:', emailError);
         }
       }
+      emitToUser(currentRequest.user, 'request:updated', { id: currentRequest._id, status: 'cancelled' });
       // Push notification annulation
       sendPushToUser(currentRequest.user, {
         title: '❌ Demande annulée',
@@ -391,9 +393,11 @@ export const updateRequestStatus = async (req, res) => {
             author: currentRequest.author,
             message: `Votre signalement sur "${currentRequest.title}" a été examiné et résolu.`
           });
+          emitToUser(currentRequest.user, 'notification:new', {});
         } catch (notifError) {
           console.error('Erreur lors de la création de la notification de résolution:', notifError);
         }
+        emitToUser(currentRequest.user, 'request:updated', { id: currentRequest._id, status: 'completed' });
         // Push notification résolution signalement
         sendPushToUser(currentRequest.user, {
           title: '✔️ Signalement résolu',
@@ -402,6 +406,7 @@ export const updateRequestStatus = async (req, res) => {
         }).catch(() => {});
       } else {
         updateFields['notifications.completed.seen'] = false;
+        emitToUser(currentRequest.user, 'request:updated', { id: currentRequest._id, status: 'completed' });
         // Push notification livre disponible
         sendPushToUser(currentRequest.user, {
           title: '✅ Livre disponible !',
@@ -610,6 +615,7 @@ export const addDownloadLink = async (req, res) => {
         console.error('Erreur lors de l\'envoi de l\'email de notification:', emailError);
       }
 
+      emitToUser(request.user, 'request:updated', { id: request._id, status: 'completed' });
       // Web push — livre disponible
       sendPushToUser(request.user, {
         title: '✅ Livre disponible !',

@@ -1,8 +1,8 @@
 import axios from 'axios';
-import { REACT_APP_API_URL } from './config';
+import { API_URL } from './config';
 
 const axiosAdmin = axios.create({
-  baseURL: `${REACT_APP_API_URL}`,
+  baseURL: `${API_URL}`,
   timeout: 60000, // Augmenté à 60 secondes pour les requêtes lentes (trending books)
   headers: {
     'Content-Type': 'application/json',

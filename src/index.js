@@ -48,6 +48,8 @@ import activityTracker from './middleware/activityTracker.js';
 import { createRequire } from 'module';
 import { initializeTrendingBooksCache } from './services/trendingBooksService.js';
 import { startValentineCron } from './services/valentineCron.js';
+import { initSocket } from './services/socketService.js';
+import { createServer } from 'http';
 
 const require = createRequire(import.meta.url);
 const { version: APP_VERSION } = require('../package.json');
@@ -62,6 +64,7 @@ if (!process.env.JWT_SECRET) {
 }
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 5001;
 
 // Configuration CORS dynamique basée sur les variables d'environnement
@@ -81,7 +84,7 @@ const corsOptions = {
 
     const allowedOrigins = [
       process.env.FRONTEND_URL,
-      process.env.REACT_APP_API_URL,
+      process.env.VITE_API_URL,
     ].filter(Boolean);
 
     // Vérifier si l'origine est autorisée
@@ -198,7 +201,8 @@ mongoose.connect(process.env.MONGODB_URI, {
   useUnifiedTopology: true,
 })
 .then(() => {
-  app.listen(PORT, () => {
+  initSocket(httpServer);
+  httpServer.listen(PORT, () => {
     console.log(`Serveur backend lancé sur le port ${PORT}`);
 
     // Initialiser le cache des livres tendance au démarrage (sans bloquer le serveur)

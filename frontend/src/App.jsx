@@ -5,13 +5,13 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import UserForm from './pages/user/UserForm';
 import UserDashboard from './pages/user/UserDashboard';
-import Login from './pages/auth/Login';
 import NotificationBell from './components/NotificationBell';
 import NavDrawer from './components/NavDrawer';
 import InstallPWABanner from './components/InstallPWABanner';
 import GlobalSearch from './components/GlobalSearch';
 import ChatBot from './components/ChatBot';
 
+const Login         = React.lazy(() => import('./pages/auth/Login'));
 const AdminPage     = React.lazy(() => import('./pages/admin/AdminPage'));
 const DiscoverPage  = React.lazy(() => import('./pages/user/DiscoverPage'));
 const UserSettings  = React.lazy(() => import('./components/UserSettings'));

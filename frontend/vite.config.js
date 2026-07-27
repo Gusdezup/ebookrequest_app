@@ -11,6 +11,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'build',
+    cssCodeSplit: false,
     rolldownOptions: {
       output: {
         manualChunks(id) {

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosAdmin from '../axiosAdmin';
 import styles from '../styles/Navbar.module.css';
+import { useSocket } from '../hooks/useSocket';
 
 const BellIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -117,6 +118,8 @@ const NotificationBell = () => {
     const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
+
+  useSocket('notification:new', () => fetchNotifications());
 
   const unseenCount = notifications.filter(n => !n.seen).length
     + (updateInfo && dismissedUpdate !== updateInfo.latestVersion ? 1 : 0);
