@@ -8,8 +8,8 @@ RUN npm ci
 
 COPY frontend/ ./
 
-# Même origine → REACT_APP_API_URL vide (requêtes relatives /api/...)
-ENV REACT_APP_API_URL=""
+# Même origine → VITE_API_URL vide (requêtes relatives /api/...)
+ENV VITE_API_URL=""
 
 RUN npm run build
 

@@ -324,7 +324,7 @@ const UserSettings = () => {
   const handleTogglePush = async () => {
     setPushLoading(true);
     try {
-      const apiUrl = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || '';
+      const apiUrl = import.meta.env.VITE_API_URL || '';
       if (pushSubscribed) {
         await unsubscribeFromPush(apiUrl);
         setPushSubscribed(false);
