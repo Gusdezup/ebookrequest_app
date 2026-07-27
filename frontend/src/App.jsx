@@ -1,27 +1,28 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { getAvatarColor } from './utils/avatarColor';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import UserForm from './pages/user/UserForm';
-import AdminPage from './pages/admin/AdminPage';
 import UserDashboard from './pages/user/UserDashboard';
-import DiscoverPage from './pages/user/DiscoverPage';
 import Login from './pages/auth/Login';
-import VerifyEmail from './pages/auth/VerifyEmail';
-import ForgotPassword from './pages/auth/ForgotPassword';
-import ResetPassword from './pages/auth/ResetPassword';
-import Register from './pages/auth/Register';
-import SetupPage from './pages/auth/SetupPage';
-import UserSettings from './components/UserSettings';
-import ProfilePage from './pages/user/ProfilePage';
-import ReadingPage from './pages/user/ReadingPage';
-import NotFound from './pages/NotFound';
 import NotificationBell from './components/NotificationBell';
 import NavDrawer from './components/NavDrawer';
 import InstallPWABanner from './components/InstallPWABanner';
 import GlobalSearch from './components/GlobalSearch';
 import ChatBot from './components/ChatBot';
+
+const AdminPage     = React.lazy(() => import('./pages/admin/AdminPage'));
+const DiscoverPage  = React.lazy(() => import('./pages/user/DiscoverPage'));
+const UserSettings  = React.lazy(() => import('./components/UserSettings'));
+const ProfilePage   = React.lazy(() => import('./pages/user/ProfilePage'));
+const ReadingPage   = React.lazy(() => import('./pages/user/ReadingPage'));
+const NotFound      = React.lazy(() => import('./pages/NotFound'));
+const VerifyEmail   = React.lazy(() => import('./pages/auth/VerifyEmail'));
+const ForgotPassword = React.lazy(() => import('./pages/auth/ForgotPassword'));
+const ResetPassword = React.lazy(() => import('./pages/auth/ResetPassword'));
+const Register      = React.lazy(() => import('./pages/auth/Register'));
+const SetupPage     = React.lazy(() => import('./pages/auth/SetupPage'));
 import styles from './styles/Navbar.module.css';
 import axiosAdmin from './axiosAdmin';
 import { checkAuth, logout as authLogout } from './services/authService';
@@ -150,11 +151,11 @@ function App() {
   const isSetupPage = location.pathname === '/setup';
 
   if (isSetupPage) {
-    return <SetupPage />;
+    return <Suspense fallback={null}><SetupPage /></Suspense>;
   }
 
   if (isRegisterPage) {
-    return <Register />;
+    return <Suspense fallback={null}><Register /></Suspense>;
   }
 
   if (isLoading) {
@@ -194,17 +195,17 @@ function App() {
   if (location.pathname.startsWith('/verify-email/')) {
     return (
       <div style={{ margin: 0, padding: 0, width: '100%', overflowX: 'hidden' }}>
-        <VerifyEmail />
+        <Suspense fallback={null}><VerifyEmail /></Suspense>
       </div>
     );
   }
 
   if (isForgotPage) {
-    return <ForgotPassword />;
+    return <Suspense fallback={null}><ForgotPassword /></Suspense>;
   }
 
   if (isResetPage) {
-    return <ResetPassword />;
+    return <Suspense fallback={null}><ResetPassword /></Suspense>;
   }
 
   if (isAuthPage) {
@@ -275,55 +276,57 @@ function App() {
       {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
       <ChatBot />
 
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/admin"
-          element={
-            isAdmin ?
-              <AdminPage /> :
-              <Navigate to="/login" state={{ from: '/admin' }} replace />
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={
-            isAuthenticated ?
-              <UserDashboard /> :
-              <Navigate to="/login" state={{ from: '/dashboard' }} replace />
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            isAuthenticated ?
-              <UserSettings /> :
-              <Navigate to="/login" state={{ from: '/settings' }} replace />
-          }
-        />
-        <Route
-          path="/reading"
-          element={isAuthenticated ? <ReadingPage /> : <Navigate to="/login" state={{ from: '/reading' }} replace />}
-        />
-        <Route
-          path="/discover"
-          element={
-            isAuthenticated ?
-              <DiscoverPage /> :
-              <Navigate to="/login" state={{ from: '/discover' }} replace />
-          }
-        />
-        <Route
-          path="/profile"
-          element={isAuthenticated ? <ProfilePage /> : <Navigate to="/login" state={{ from: '/profile' }} replace />}
-        />
-        <Route
-          path="/verify-email/:token"
-          element={<VerifyEmail />}
-        />
-        <Route path="/" element={isAuthenticated ? <UserForm /> : <Navigate to="/login" replace />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      <Suspense fallback={null}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/admin"
+            element={
+              isAdmin ?
+                <AdminPage /> :
+                <Navigate to="/login" state={{ from: '/admin' }} replace />
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              isAuthenticated ?
+                <UserDashboard /> :
+                <Navigate to="/login" state={{ from: '/dashboard' }} replace />
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              isAuthenticated ?
+                <UserSettings /> :
+                <Navigate to="/login" state={{ from: '/settings' }} replace />
+            }
+          />
+          <Route
+            path="/reading"
+            element={isAuthenticated ? <ReadingPage /> : <Navigate to="/login" state={{ from: '/reading' }} replace />}
+          />
+          <Route
+            path="/discover"
+            element={
+              isAuthenticated ?
+                <DiscoverPage /> :
+                <Navigate to="/login" state={{ from: '/discover' }} replace />
+            }
+          />
+          <Route
+            path="/profile"
+            element={isAuthenticated ? <ProfilePage /> : <Navigate to="/login" state={{ from: '/profile' }} replace />}
+          />
+          <Route
+            path="/verify-email/:token"
+            element={<VerifyEmail />}
+          />
+          <Route path="/" element={isAuthenticated ? <UserForm /> : <Navigate to="/login" replace />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
     </div>
   );
 }
