@@ -189,6 +189,13 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', version: APP_VERSI
 
 // Servir le build React (production)
 const frontendBuild = path.join(__dirname, '../frontend/build');
+
+// env.js dynamique : injecte VITE_API_URL au runtime (permet un domaine API différent du frontend)
+app.get('/env.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.send(`window.env = { VITE_API_URL: ${JSON.stringify(process.env.VITE_API_URL || '')} };`);
+});
+
 app.use(express.static(frontendBuild));
 
 // Toutes les routes non-API → index.html (React Router)

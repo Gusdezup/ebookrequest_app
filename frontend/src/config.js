@@ -1,7 +1,5 @@
-// En monorepo, le frontend est servi par le backend sur la même origine.
-// VITE_API_URL est vide → axios fait des requêtes relatives (/api/...)
-// En dev local, pointer vers le backend dev sur port 5001.
+// Priorité : window.env (injecté par le backend au runtime) > import.meta.env (build time) > dev fallback
 export const API_URL =
-  import.meta.env.VITE_API_URL !== undefined
-    ? import.meta.env.VITE_API_URL
-    : (import.meta.env.DEV ? 'http://localhost:5001' : '');
+  (typeof window !== 'undefined' && window.env?.VITE_API_URL)
+    ? window.env.VITE_API_URL
+    : import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5001' : '');

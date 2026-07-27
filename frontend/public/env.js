@@ -1,3 +1,1 @@
-window.env = {
-    REACT_APP_API_URL: 'DEFAULT_API_URL'
-};
+window.env = { VITE_API_URL: '' };
