@@ -212,7 +212,7 @@ cp .env.example .env
 | Variable | Description |
 |---|---|
 | `FRONTEND_URL` | URL publique de l'application (ex : `https://ebook.tondomaine.fr`). Utilisée pour les liens dans les emails (vérification, reset mot de passe, invitations) et la configuration CORS en production. **Obligatoire en production.** |
-| `REACT_APP_API_URL` | URL du backend utilisée par le frontend au moment du build (ex : `https://ebook.tondomaine.fr`). Nécessaire uniquement si le frontend et le backend sont sur des origines différentes. En monorepo (frontend servi par le backend), laisser vide — les requêtes sont alors relatives (`/api/...`). |
+| `VITE_API_URL` | URL du backend utilisée par le frontend au moment du build (ex : `https://ebook.tondomaine.fr`). Nécessaire uniquement si le frontend et le backend sont sur des origines différentes. En monorepo (frontend servi par le backend), laisser vide — les requêtes sont alors relatives (`/api/...`). **Note (migration depuis une version < 1.5.0) :** si vous buildiez manuellement sans Docker, renommez `REACT_APP_API_URL` en `VITE_API_URL` dans votre `frontend/.env`. |
 
 #### Email
 
@@ -343,7 +343,9 @@ ebookrequest/
 │   ├── scripts/                # initAdmin, migrations
 │   ├── services/               # email, push, IA, trending...
 │   └── index.js
-├── frontend/                   # React app
+├── frontend/                   # React + Vite app
+│   ├── index.html
+│   ├── vite.config.js
 │   ├── public/
 │   └── src/
 │       ├── components/
