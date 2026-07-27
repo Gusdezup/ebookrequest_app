@@ -108,7 +108,10 @@ export async function pushToCalibre(user, filePath, bookTitle) {
       ? uploadRes.data.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)
       : JSON.stringify(uploadRes.data).slice(0, 300);
     console.error(`[Calibre] Réponse upload: ${body}`);
-    throw new Error(`Upload échoué: HTTP ${uploadRes.status}`);
+    const hint = uploadRes.status === 403
+      ? 'Upload échoué: HTTP 403 — vérifiez que le compte Calibre-Web a la permission "Upload books" activée'
+      : `Upload échoué: HTTP ${uploadRes.status}`;
+    throw new Error(hint);
   }
 
   // 4. Extraire l'ID du livre
@@ -324,8 +327,21 @@ export async function testCalibreConnection({ url, username, password }) {
 
   const cleanUrl = url.replace(/\/$/, '');
   try {
-    await getSessionCookie(cleanUrl, username, password);
-    return { connected: true };
+    const cookie = await getSessionCookie(cleanUrl, username, password);
+
+    // Vérifier la permission Upload via GET /upload
+    const uploadCheck = await axios.get(`${cleanUrl}/upload`, {
+      headers: { Cookie: cookie },
+      timeout: TIMEOUT,
+      maxRedirects: 0,
+      validateStatus: s => s < 500,
+    });
+
+    if (uploadCheck.status === 403) {
+      return { connected: true, uploadAllowed: false, warning: 'Connexion réussie mais le compte n\'a pas la permission "Upload books" dans Calibre-Web.' };
+    }
+
+    return { connected: true, uploadAllowed: true };
   } catch (err) {
     const msg = err.response
       ? `HTTP ${err.response.status} — ${err.response.statusText}`

@@ -120,6 +120,7 @@ function UserForm() {
   });
   const [message, setMessage] = useState({ text: '', type: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [searchMode, setSearchMode] = useState('google');
   const [selectedBook, setSelectedBook] = useState(null);
@@ -561,6 +562,65 @@ function UserForm() {
     }
   };
 
+  const handleBatchSelectBooks = useCallback(async (books) => {
+    if (!books?.length) return;
+    setIsSubmitting(true);
+    setMessage({ text: '', type: '' });
+    setBatchProgress({ current: 0, total: books.length });
+
+    let ok = 0;
+    let skipped = 0;
+    const errors = [];
+
+    for (let i = 0; i < books.length; i++) {
+      const book   = books[i];
+      const title  = book.volumeInfo?.title || '';
+      const author = book.volumeInfo?.authors?.[0] || '';
+
+      setBatchProgress({ current: i + 1, total: books.length });
+
+      if (!title || !author) { skipped++; continue; }
+
+      const isDuplicate = existingRequests.some(req =>
+        req.googleBooksId === book.id ||
+        (req.title === title && req.author === author)
+      );
+      if (isDuplicate) { skipped++; continue; }
+
+      try {
+        await axiosAdmin.post('/api/requests', {
+          title,
+          author: book.volumeInfo.authors?.join(', ') || author,
+          description: book.volumeInfo.description || '',
+          link: book.volumeInfo.infoLink || `https://books.google.fr/books?id=${book.id}`,
+          thumbnail: book.volumeInfo.imageLinks?.thumbnail || '',
+          publishedDate: book.volumeInfo.publishedDate || '',
+          category: 'ebook',
+          googleBooksId: book.id,
+          ...(isAdmin && targetUserId && { targetUserId }),
+        });
+        ok++;
+      } catch (err) {
+        errors.push(title);
+      }
+    }
+
+    await fetchQuota(isAdmin && targetUserId ? targetUserId : '');
+
+    const parts = [];
+    if (ok > 0) parts.push(`${ok} demande${ok > 1 ? 's' : ''} soumise${ok > 1 ? 's' : ''}`);
+    if (skipped > 0) parts.push(`${skipped} ignorée${skipped > 1 ? 's' : ''} (doublon ou données manquantes)`);
+    if (errors.length > 0) parts.push(`${errors.length} erreur${errors.length > 1 ? 's' : ''}`);
+
+    setMessage({
+      text: parts.join(' · '),
+      type: errors.length > 0 && ok === 0 ? 'error' : 'success',
+    });
+
+    setBatchProgress(null);
+    setIsSubmitting(false);
+  }, [existingRequests, isAdmin, targetUserId]);
+
   if (!isAuthenticated) {
     return (
       <div className={styles.loadingContainer}>
@@ -685,7 +745,7 @@ function UserForm() {
 
       {/* GoogleBooksSearch toujours monté pour préserver les résultats */}
       <div style={{ display: searchMode === 'google' && !selectedBook ? 'block' : 'none' }}>
-        <GoogleBooksSearch onSelectBook={handleBookSelect} />
+        <GoogleBooksSearch onSelectBook={handleBookSelect} onBatchSelectBooks={handleBatchSelectBooks} batchSubmitting={isSubmitting} batchProgress={batchProgress} />
       </div>
 
       {searchMode === 'google' && selectedBook && (

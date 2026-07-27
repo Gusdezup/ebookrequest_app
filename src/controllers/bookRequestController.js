@@ -483,10 +483,12 @@ export const downloadEbook = async (req, res) => {
     
     // Vérifier si c'est un fichier local ou un lien externe
     if (request.filePath) {
-      // Téléchargement d'un fichier local
-      const filePath = path.join(__dirname, '../../uploads', request.filePath);
-      
-      // Vérifier que le fichier existe
+      const uploadsDir = path.resolve(__dirname, '../../uploads');
+      const filePath = path.join(uploadsDir, request.filePath);
+      if (!filePath.startsWith(uploadsDir + path.sep)) {
+        return res.status(403).json({ error: 'Accès refusé' });
+      }
+
       if (!fs.existsSync(filePath)) {
         console.error(`Fichier introuvable: ${filePath}`);
         return res.status(404).json({ 

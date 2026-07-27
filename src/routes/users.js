@@ -14,8 +14,11 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     const { username, email, password, role } = req.body;
     
     // Validation des données
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: 'Tous les champs sont obligatoires' });
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Le nom d\'utilisateur et le mot de passe sont obligatoires' });
+    }
+    if (email && !/\S+@\S+\.\S+/.test(email)) {
+      return res.status(400).json({ error: 'Adresse email invalide' });
     }
     
     if (password.length < 8) {
@@ -27,42 +30,40 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     }
 
     // Vérifier si l'utilisateur existe déjà
-    const existingUser = await User.findOne({ 
-      $or: [
-        { username },
-        { email: email.toLowerCase() }
-      ]
-    });
-    
+    const orConditions = [{ username }];
+    if (email) orConditions.push({ email: email.toLowerCase() });
+    const existingUser = await User.findOne({ $or: orConditions });
+
     if (existingUser) {
-      return res.status(400).json({ 
-        error: 'Un utilisateur avec ce nom d\'utilisateur ou cette adresse email existe déjà' 
+      return res.status(400).json({
+        error: 'Un utilisateur avec ce nom d\'utilisateur ou cette adresse email existe déjà'
       });
     }
-    
-    // Créer un token de vérification d'email
-    const verificationToken = crypto.randomBytes(20).toString('hex');
-    const verificationExpires = new Date();
-    verificationExpires.setHours(verificationExpires.getHours() + 24); // 24h pour vérifier
-    
-    // Créer le nouvel utilisateur
-    const newUser = new User({
+
+    const userFields = {
       username,
-      email: email.toLowerCase(),
       password,
       role: role || 'user',
-      emailVerificationToken: verificationToken,
-      emailVerificationExpires: verificationExpires
-    });
-    
+    };
+
+    if (email) {
+      const verificationToken = crypto.randomBytes(20).toString('hex');
+      const verificationExpires = new Date();
+      verificationExpires.setHours(verificationExpires.getHours() + 24);
+      userFields.email = email.toLowerCase();
+      userFields.emailVerificationToken = verificationToken;
+      userFields.emailVerificationExpires = verificationExpires;
+    }
+
+    const newUser = new User(userFields);
     await newUser.save();
-    
-    // Envoyer l'email de vérification
-    try {
-      await sendVerificationEmail(email, verificationToken, username);
-    } catch (emailError) {
-      console.error('Erreur lors de l\'envoi de l\'email de vérification:', emailError);
-      // On continue quand même la création
+
+    if (email) {
+      try {
+        await sendVerificationEmail(email, userFields.emailVerificationToken, username);
+      } catch (emailError) {
+        console.error('Erreur lors de l\'envoi de l\'email de vérification:', emailError);
+      }
     }
     
     // Ne pas renvoyer le mot de passe
@@ -72,7 +73,9 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     
     res.status(201).json({
       success: true,
-      message: 'Utilisateur créé avec succès. Un email de vérification a été envoyé.',
+      message: email
+        ? 'Utilisateur créé avec succès. Un email de vérification a été envoyé.'
+        : 'Utilisateur créé avec succès.',
       user: userResponse
     });
     

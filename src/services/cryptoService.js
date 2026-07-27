@@ -2,8 +2,7 @@ import crypto from 'crypto';
 
 // Derive a 32-byte key from JWT_SECRET
 const getKey = () => {
-  const secret = process.env.JWT_SECRET || 'default-secret';
-  return crypto.createHash('sha256').update(secret).digest();
+  return crypto.createHash('sha256').update(process.env.JWT_SECRET).digest();
 };
 
 /**

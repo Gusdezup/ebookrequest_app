@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Session from '../models/Session.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Vérification du token JWT ou opdsToken (pour MCP)
 export async function requireAuth(req, res, next) {
