@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { testAIProviderConnection, getProviderInfo } from '../services/aiProviderService.js';
 import AIRequestLog from '../models/AIRequestLog.js';
 import ConnectorSettings from '../models/ConnectorSettings.js';
-import { getValentineQuota } from '../services/valentineService.js';
+import { getValentineQuota, getValentineCircuitStatus } from '../services/valentineService.js';
 import { pingAnnasArchive, getAnnasArchiveConfig } from '../services/annasArchiveService.js';
 import { testCalibreConnection } from '../services/calibreService.js';
 import { decrypt } from '../services/cryptoService.js';
@@ -42,14 +42,15 @@ async function checkFlareSolverr() {
 }
 
 async function checkValentineConnector() {
+  const circuitBreaker = getValentineCircuitStatus();
   try {
     const doc = await ConnectorSettings.findOne({ service: 'valentine' }).lean();
-    if (!doc?.enabled || !doc?.username || !doc?.password) return { enabled: false, connected: false, quota: null, error: null };
+    if (!doc?.enabled || !doc?.username || !doc?.password) return { enabled: false, connected: false, quota: null, circuitBreaker, error: null };
     const password = decrypt(doc.password) ?? doc.password;
     const quota = await getValentineQuota(doc.username, password);
-    return { enabled: true, connected: true, quota, error: null };
+    return { enabled: true, connected: true, quota, circuitBreaker, error: null };
   } catch (err) {
-    return { enabled: true, connected: false, quota: null, error: err.message };
+    return { enabled: true, connected: false, quota: null, circuitBreaker: getValentineCircuitStatus(), error: err.message };
   }
 }
 

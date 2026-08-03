@@ -152,6 +152,21 @@
   background: var(--color-text-muted);
 }
 
+.dotWarning {
+  background: #F59E0B;
+}
+
+.cardWarning {
+  font-size: 0.78rem;
+  color: #F59E0B;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.6rem;
+  margin: 0.5rem 0 0 0;
+  word-break: break-word;
+}
+
 @keyframes ping {
   75%, 100% { transform: scale(2); opacity: 0; }
 }

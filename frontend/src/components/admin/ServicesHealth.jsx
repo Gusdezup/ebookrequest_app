@@ -76,12 +76,24 @@ const SERVICE_DEFS = [
       />
     ),
     isEnabled: (s) => s.enabled,
-    isConnected: (s) => s.connected,
+    isConnected: (s) => s.connected && !s.circuitBreaker?.open,
+    isWarning: (s) => !!s.circuitBreaker?.open,
     details: (s) => {
-      if (!s.quota) return [];
-      const remaining = s.quota.remaining ?? '—';
-      const total = s.quota.total != null ? ` / ${s.quota.total}` : '';
-      return [`Quota : ${remaining}${total} téléch. restants`];
+      const lines = [];
+      if (s.quota) {
+        const remaining = s.quota.remaining ?? '—';
+        const total = s.quota.total != null ? ` / ${s.quota.total}` : '';
+        lines.push(`Quota : ${remaining}${total} téléch. restants`);
+      }
+      if (!s.circuitBreaker?.open) {
+        lines.push('Protection anti-blocage : opérationnelle');
+      }
+      return lines;
+    },
+    warning: (s) => {
+      if (!s.circuitBreaker?.open) return null;
+      const until = formatShortDateTime(s.circuitBreaker.blockedUntil);
+      return `Blocages répétés détectés (${s.circuitBreaker.consecutiveBlocks}) — connecteur en pause${until ? ` jusqu'à ${until}` : ''}`;
     },
     error: (s) => s.error,
   },
@@ -110,6 +122,12 @@ const SERVICE_DEFS = [
     error: (s) => s.error,
   },
 ];
+
+const formatShortDateTime = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+};
 
 const formatCheckedAt = (iso) => {
   if (!iso) return null;
@@ -213,9 +231,12 @@ const ServicesHealth = () => {
           if (!s) return null;
           const enabled = def.isEnabled(s);
           const connected = enabled && def.isConnected(s);
+          const isWarning = enabled && !!def.isWarning?.(s);
           const details = def.details(s);
           const err = def.error(s);
+          const warning = def.warning?.(s);
           const label = typeof def.label === 'function' ? def.label(s) : def.label;
+          const dotClass = !enabled ? styles.dotDisabled : isWarning ? styles.dotWarning : connected ? styles.dotOk : styles.dotError;
 
           return (
             <div key={def.key} className={`${styles.card} ${!enabled ? styles.cardDisabled : ''}`}>
@@ -225,7 +246,7 @@ const ServicesHealth = () => {
                   <span className={styles.cardName}>{label}</span>
                   <span className={styles.dotWrap}>
                     {connected && <span className={styles.dotPing} />}
-                    <span className={`${styles.dot} ${!enabled ? styles.dotDisabled : connected ? styles.dotOk : styles.dotError}`} />
+                    <span className={`${styles.dot} ${dotClass}`} />
                   </span>
                 </div>
                 {details.length > 0 && (
@@ -233,6 +254,7 @@ const ServicesHealth = () => {
                     {details.map((d, i) => <li key={i}>{d}</li>)}
                   </ul>
                 )}
+                {warning && <p className={styles.cardWarning}>{warning}</p>}
                 {err && <p className={styles.cardError}>{err.length > 120 ? err.slice(0, 120) + '…' : err}</p>}
               </div>
             </div>

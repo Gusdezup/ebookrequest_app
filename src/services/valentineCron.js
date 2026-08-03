@@ -14,7 +14,14 @@ function isPublishedInFuture(dateStr) {
   return !isNaN(d.getTime()) && d > today;
 }
 
-const DELAY_BETWEEN_MS = 60000; // 60s entre chaque livre — évite le rate-limit Valentine / Anna's Archive
+// Délai aléatoire entre chaque livre (jitter) — évite le rate-limit Valentine / Anna's Archive
+// et casse le pattern parfaitement régulier d'un délai fixe.
+const DELAY_MIN_MS = 45000;
+const DELAY_MAX_MS = 90000;
+
+function randomDelay() {
+  return DELAY_MIN_MS + Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS);
+}
 
 let nextScanAt = null;
 let cronIntervalId = null;
@@ -63,7 +70,7 @@ async function runValentineCron() {
         continue;
       }
       await downloadWithFallback(req.title, req.author, req._id.toString(), req.category || 'ebook');
-      await sleep(DELAY_BETWEEN_MS);
+      await sleep(randomDelay());
     }
 
     console.log('[Connecteurs Cron] Vérification terminée.');

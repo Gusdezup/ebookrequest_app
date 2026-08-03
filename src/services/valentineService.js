@@ -56,11 +56,132 @@ function extractVolumeNumber(title) {
   return m ? parseInt(m[1], 10) : null;
 }
 
-const BASE_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:124.0) Gecko/20100101 Firefox/124.0',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-};
+// Rotation de User-Agent — évite une signature figée facilement fingerprintable
+const USER_AGENTS = [
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:124.0) Gecko/20100101 Firefox/124.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+];
+
+function pickUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function baseHeaders() {
+  return {
+    'User-Agent': pickUserAgent(),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+  };
+}
+
+// ─── Détection de blocage (rate-limit / CAPTCHA / WAF) ─────────────────────────
+
+const CAPTCHA_MARKERS = [
+  /captcha/i,
+  /cloudflare/i,
+  /checking your browser/i,
+  /attention required/i,
+  /access denied/i,
+  /just a moment/i,
+];
+
+function detectBlock(status, html) {
+  if (status === 403 || status === 429 || status === 503) return `HTTP ${status}`;
+  if (typeof html === 'string' && html.length < 5000) {
+    for (const pattern of CAPTCHA_MARKERS) {
+      if (pattern.test(html)) return `contenu suspect (${pattern})`;
+    }
+  }
+  return null;
+}
+
+class ValentineBlockedError extends Error {
+  constructor(reason) {
+    super(`Valentine semble bloquer les requêtes : ${reason}`);
+    this.name = 'ValentineBlockedError';
+    this.isBlock = true;
+  }
+}
+
+// ─── Circuit breaker ────────────────────────────────────────────────────────────
+
+let consecutiveBlocks = 0;
+let blockedUntil = null;
+let lastBlockReason = null;
+let lastBlockAt = null;
+const BLOCK_THRESHOLD = 3;
+const BLOCK_PAUSE_MS = 60 * 60 * 1000; // 1h de pause après détection répétée
+
+function isCircuitOpen() {
+  return blockedUntil !== null && Date.now() < blockedUntil;
+}
+
+function recordBlock(reason) {
+  consecutiveBlocks++;
+  lastBlockReason = reason;
+  lastBlockAt = new Date();
+  console.warn(`[Valentine] Blocage détecté (${reason}) — ${consecutiveBlocks}/${BLOCK_THRESHOLD}`);
+  if (consecutiveBlocks >= BLOCK_THRESHOLD) {
+    blockedUntil = Date.now() + BLOCK_PAUSE_MS;
+    console.error(`[Valentine] Circuit ouvert — connecteur mis en pause ${BLOCK_PAUSE_MS / 60000}min (blocage probable / ban).`);
+    logCircuitEvent(reason).catch(() => {});
+  }
+}
+
+function recordSuccess() {
+  consecutiveBlocks = 0;
+  blockedUntil = null;
+}
+
+function assertCircuitClosed() {
+  if (isCircuitOpen()) {
+    const remainingMin = Math.ceil((blockedUntil - Date.now()) / 60000);
+    throw new ValentineBlockedError(`connecteur en pause encore ${remainingMin}min suite à des blocages répétés`);
+  }
+}
+
+/** État exposé à l'admin (carte Valentine du panel Services). */
+export function getValentineCircuitStatus() {
+  return {
+    open: isCircuitOpen(),
+    consecutiveBlocks,
+    blockedUntil: blockedUntil ? new Date(blockedUntil).toISOString() : null,
+    lastBlockReason,
+    lastBlockAt,
+  };
+}
+
+/** Trace l'ouverture du circuit dans les DownloadLogs pour qu'elle apparaisse dans Panel Admin / Logs. */
+async function logCircuitEvent(reason) {
+  const { default: DownloadLog } = await import('../models/DownloadLog.js');
+  await DownloadLog.create({
+    title: 'Valentine — circuit breaker ouvert',
+    author: '',
+    connector: 'valentine',
+    success: false,
+    error: `Blocage répété détecté (${reason}) — connecteur mis en pause ${BLOCK_PAUSE_MS / 60000}min`,
+    triggeredBy: 'auto',
+  });
+}
+
+// ─── Verrou global : sérialise tous les accès réseau vers Valentine ────────────
+// Empêche le cron, une création de demande utilisateur et une recherche admin
+// de taper valentine.wtf en même temps (plusieurs sessions concurrentes = signal suspect).
+
+let lockChain = Promise.resolve();
+
+function withValentineLock(fn) {
+  const run = lockChain.then(fn, fn);
+  lockChain = run.then(() => {}, () => {});
+  return run;
+}
+
+// Jitter aléatoire entre chaque requête HTTP individuelle vers Valentine
+function jitter(min = 800, max = 2200) {
+  return new Promise(resolve => setTimeout(resolve, min + Math.random() * (max - min)));
+}
 
 async function getConfig() {
   const doc = await ConnectorSettings.findOne({ service: 'valentine' }).lean();
@@ -97,17 +218,28 @@ function cookieHeader(cookies) {
  * @returns {Promise<object>} cookies
  */
 async function login(baseUrl, username, password) {
+  assertCircuitClosed();
+  const headers = baseHeaders();
+
   // 1. GET homepage to extract lsID token
   const homeRes = await axios.get(`${baseUrl}/`, {
-    headers: BASE_HEADERS,
+    headers,
     timeout: 25000,
     maxRedirects: 5,
     validateStatus: () => true,
   });
 
+  const homeBlock = detectBlock(homeRes.status, homeRes.data);
+  if (homeBlock) {
+    recordBlock(homeBlock);
+    throw new ValentineBlockedError(homeBlock);
+  }
+
   const lsIdMatch = homeRes.data.match(/name=["']lsID["']\s+value=["']([^"']+)["']/);
   const lsId = lsIdMatch ? lsIdMatch[1] : '';
   const cookies = parseCookies(homeRes.headers['set-cookie']);
+
+  await jitter();
 
   // 2. POST credentials
   const formData = new URLSearchParams({ pseudo: username, password, lsID: lsId });
@@ -116,7 +248,7 @@ async function login(baseUrl, username, password) {
     formData.toString(),
     {
       headers: {
-        ...BASE_HEADERS,
+        ...headers,
         'Content-Type': 'application/x-www-form-urlencoded',
         'Referer': `${baseUrl}/`,
         'Origin': baseUrl,
@@ -128,12 +260,19 @@ async function login(baseUrl, username, password) {
     }
   );
 
+  const loginBlock = detectBlock(loginRes.status, loginRes.data);
+  if (loginBlock) {
+    recordBlock(loginBlock);
+    throw new ValentineBlockedError(loginBlock);
+  }
+
   const allCookies = { ...cookies, ...parseCookies(loginRes.headers['set-cookie']) };
 
   if (!allCookies.hash_m) {
     throw new Error('Identifiants invalides — cookie hash_m absent (connexion refusée)');
   }
 
+  recordSuccess();
   return allCookies;
 }
 
@@ -145,16 +284,24 @@ async function login(baseUrl, username, password) {
  * @returns {Promise<Array>} list of { id, title, url }
  */
 async function searchTitles(baseUrl, cookies, query) {
+  await jitter();
   const res = await axios.get(`${baseUrl}/includes/recherche.php`, {
     params: { type: 'global', term: query, contenu: 'search_ebooks' },
     headers: {
-      ...BASE_HEADERS,
+      ...baseHeaders(),
       'Accept': 'application/json, text/javascript, */*; q=0.01',
       'X-Requested-With': 'XMLHttpRequest',
       'Cookie': cookieHeader(cookies),
     },
     timeout: 20000,
+    validateStatus: () => true,
   });
+
+  const block = detectBlock(res.status, typeof res.data === 'string' ? res.data : null);
+  if (block) {
+    recordBlock(block);
+    throw new ValentineBlockedError(block);
+  }
 
   const data = Array.isArray(res.data) ? res.data : [];
   const results = [];
@@ -174,12 +321,13 @@ async function searchTitles(baseUrl, cookies, query) {
  */
 async function getBookDetails(baseUrl, cookies, bookId) {
   try {
+    await jitter();
     const res = await axios.post(
       `${baseUrl}/pages/eBookModalNew.php`,
       new URLSearchParams({ ebook_id: bookId, downloaded: '0' }).toString(),
       {
         headers: {
-          ...BASE_HEADERS,
+          ...baseHeaders(),
           'Content-Type': 'application/x-www-form-urlencoded',
           'Cookie': cookieHeader(cookies),
         },
@@ -221,12 +369,13 @@ async function getBookDetails(baseUrl, cookies, bookId) {
  * @returns {Promise<string|null>} relative path like /includes/telechargement.php?...
  */
 async function getDownloadPath(baseUrl, cookies, bookId) {
+  await jitter();
   const res = await axios.post(
     `${baseUrl}/pages/eBookModalNew.php`,
     new URLSearchParams({ ebook_id: bookId, downloaded: '0' }).toString(),
     {
       headers: {
-        ...BASE_HEADERS,
+        ...baseHeaders(),
         'Content-Type': 'application/x-www-form-urlencoded',
         'Cookie': cookieHeader(cookies),
       },
@@ -234,6 +383,12 @@ async function getDownloadPath(baseUrl, cookies, bookId) {
       validateStatus: () => true,
     }
   );
+
+  const block = detectBlock(res.status, res.data);
+  if (block) {
+    recordBlock(block);
+    throw new ValentineBlockedError(block);
+  }
 
   // Extract the download href from HTML
   const match = res.data.match(/href=["'](\/includes\/telechargement\.php[^"']+)["']/);
@@ -247,10 +402,12 @@ async function getDownloadPath(baseUrl, cookies, bookId) {
  * @param {string} username
  * @param {string} password
  */
-export async function testConnectionValentine(username, password) {
-  const baseUrl = DEFAULT_URL;
-  await login(baseUrl, username, password);
-  return true;
+export function testConnectionValentine(username, password) {
+  return withValentineLock(async () => {
+    const baseUrl = DEFAULT_URL;
+    await login(baseUrl, username, password);
+    return true;
+  });
 }
 
 /**
@@ -259,32 +416,35 @@ export async function testConnectionValentine(username, password) {
  * @param {string} password
  * @returns {{ remaining: number|null, total: number|null, label: string|null }}
  */
-export async function getValentineQuota(username, password) {
-  const baseUrl = DEFAULT_URL;
-  const cookies = await login(baseUrl, username, password);
+export function getValentineQuota(username, password) {
+  return withValentineLock(async () => {
+    const baseUrl = DEFAULT_URL;
+    const cookies = await login(baseUrl, username, password);
 
-  const homeRes = await axios.get(`${baseUrl}/`, {
-    headers: {
-      ...BASE_HEADERS,
-      Cookie: cookieHeader(cookies),
-    },
-    timeout: 15000,
+    await jitter();
+    const homeRes = await axios.get(`${baseUrl}/`, {
+      headers: {
+        ...baseHeaders(),
+        Cookie: cookieHeader(cookies),
+      },
+      timeout: 15000,
+    });
+
+    const html = homeRes.data || '';
+
+    // Cherche <span data-hover="tooltip" title="X téléchargements restants sur Y">X</span>
+    const titleMatch = html.match(/data-hover=["']tooltip["'][^>]+title=["']([^"']*restants[^"']*)["']/i)
+                    || html.match(/title=["']([^"']*restants[^"']*)["'][^>]+data-hover=["']tooltip["']/i);
+
+    if (!titleMatch) return { remaining: null, total: null, label: null };
+
+    const label = titleMatch[1].trim(); // ex: "47 téléchargements restants sur 50"
+
+    const remaining = parseInt(label.match(/^(\d+)/)?.[1] ?? '', 10) || null;
+    const total     = parseInt(label.match(/sur\s+(\d+)/i)?.[1] ?? '', 10) || null;
+
+    return { remaining, total, label };
   });
-
-  const html = homeRes.data || '';
-
-  // Cherche <span data-hover="tooltip" title="X téléchargements restants sur Y">X</span>
-  const titleMatch = html.match(/data-hover=["']tooltip["'][^>]+title=["']([^"']*restants[^"']*)["']/i)
-                  || html.match(/title=["']([^"']*restants[^"']*)["'][^>]+data-hover=["']tooltip["']/i);
-
-  if (!titleMatch) return { remaining: null, total: null, label: null };
-
-  const label = titleMatch[1].trim(); // ex: "47 téléchargements restants sur 50"
-
-  const remaining = parseInt(label.match(/^(\d+)/)?.[1] ?? '', 10) || null;
-  const total     = parseInt(label.match(/sur\s+(\d+)/i)?.[1] ?? '', 10) || null;
-
-  return { remaining, total, label };
 }
 
 /**
@@ -297,6 +457,7 @@ export async function getValentineQuota(username, password) {
  * @param {string} requestId - MongoDB ObjectId of the BookRequest
  */
 export async function downloadFromValentine(title, author, requestId, category = 'ebook', userCredentials = null) {
+  await withValentineLock(async () => {
   try {
     const isMangaOrComic = category === 'comic' || category === 'manga' ||
       /\b(manga|manhwa|manhua|comic|tome\s*\d+|vol\.?\s*\d+|t\d{2}\b)/i.test(title);
@@ -402,10 +563,11 @@ export async function downloadFromValentine(title, author, requestId, category =
     }
 
     // ── Download file ──────────────────────────────────────────────────────
+    await jitter();
     const fullUrl = `${baseUrl}${dlPath}`;
     const fileRes = await axios.get(fullUrl, {
       headers: {
-        ...BASE_HEADERS,
+        ...baseHeaders(),
         'Accept': '*/*',
         'Cookie': cookieHeader(cookies),
       },
@@ -491,88 +653,94 @@ export async function downloadFromValentine(title, author, requestId, category =
   } catch (err) {
     console.error('[Valentine] Erreur (non bloquante):', err.message);
   }
+  });
 }
 
 /**
  * Search valentine.wtf and return enriched results (for admin UI).
  * Fetches cover + size for each result in parallel.
  */
-export async function searchOnValentine(query) {
-  const config = await getConfig();
-  if (!config.enabled || !config.username || !config.password) {
-    throw new Error('Valentine désactivé ou configuration incomplète');
-  }
-  const baseUrl = (config.url || DEFAULT_URL).replace(/\/$/, '');
-  const cookies = await login(baseUrl, config.username, config.password);
-  const results = await searchTitles(baseUrl, cookies, query);
+export function searchOnValentine(query) {
+  return withValentineLock(async () => {
+    const config = await getConfig();
+    if (!config.enabled || !config.username || !config.password) {
+      throw new Error('Valentine désactivé ou configuration incomplète');
+    }
+    const baseUrl = (config.url || DEFAULT_URL).replace(/\/$/, '');
+    const cookies = await login(baseUrl, config.username, config.password);
+    const results = await searchTitles(baseUrl, cookies, query);
 
-  // Enrich results with cover + size in parallel (best-effort, failures silently ignored)
-  const enriched = await Promise.all(
-    results.map(async r => {
+    // Enrich results avec cover + size, séquentiellement (avec jitter) pour ne pas
+    // multiplier les requêtes simultanées vers Valentine — best-effort, échecs ignorés.
+    const enriched = [];
+    for (const r of results) {
       const details = await getBookDetails(baseUrl, cookies, r.id);
-      return {
+      enriched.push({
         ...r,
         cover: details.cover,
         size: details.size,
         valentineUrl: r.url ? `${baseUrl}${r.url}` : null,
-      };
-    })
-  );
+      });
+    }
 
-  return enriched;
+    return enriched;
+  });
 }
 
 /**
  * Download a specific ebook by its valentine ID for a given request (admin manual action).
  */
-export async function downloadFromValentineById(requestId, ebookId) {
-  const config = await getConfig();
-  if (!config.enabled || !config.username || !config.password) {
-    throw new Error('Valentine désactivé ou configuration incomplète');
-  }
-  const baseUrl = (config.url || DEFAULT_URL).replace(/\/$/, '');
-  const cookies = await login(baseUrl, config.username, config.password);
+export function downloadFromValentineById(requestId, ebookId) {
+  return withValentineLock(async () => {
+    const config = await getConfig();
+    if (!config.enabled || !config.username || !config.password) {
+      throw new Error('Valentine désactivé ou configuration incomplète');
+    }
+    const baseUrl = (config.url || DEFAULT_URL).replace(/\/$/, '');
+    const cookies = await login(baseUrl, config.username, config.password);
 
-  const dlPath = await getDownloadPath(baseUrl, cookies, ebookId);
-  if (!dlPath) throw new Error('Lien de téléchargement introuvable pour cet ebook');
+    const dlPath = await getDownloadPath(baseUrl, cookies, ebookId);
+    if (!dlPath) throw new Error('Lien de téléchargement introuvable pour cet ebook');
 
-  const fileRes = await axios.get(`${baseUrl}${dlPath}`, {
-    headers: { ...BASE_HEADERS, 'Accept': '*/*', 'Cookie': cookieHeader(cookies) },
-    responseType: 'arraybuffer',
-    timeout: 120000,
+    await jitter();
+    const fileRes = await axios.get(`${baseUrl}${dlPath}`, {
+      headers: { ...baseHeaders(), 'Accept': '*/*', 'Cookie': cookieHeader(cookies) },
+      responseType: 'arraybuffer',
+      timeout: 120000,
+    });
+
+    const cd = fileRes.headers['content-disposition'] || '';
+    const fnMatch = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i);
+    let filename = fnMatch ? decodeURIComponent(fnMatch[1].trim()) : `valentine_${ebookId}.epub`;
+    filename = filename.replace(/[<>:"/\\|?*]/g, '').trim() || `valentine_${ebookId}.epub`;
+
+    const uploadsDir = path.join(__dirname, '../../uploads/books');
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    fs.writeFileSync(path.join(uploadsDir, filename), Buffer.from(fileRes.data));
+
+    // Complete the request
+    const request = await BookRequest.findById(requestId);
+    if (!request) throw new Error('Demande introuvable');
+    if (request.status === 'completed') throw new Error('Demande déjà complétée');
+
+    request.status = 'completed';
+    request.filePath = `books/${filename}`;
+    request.completedAt = new Date();
+    if (!Array.isArray(request.statusHistory)) request.statusHistory = [];
+    request.statusHistory.push({ status: 'completed', changedBy: 'admin-valentine', note: 'Téléchargé manuellement via Valentine' });
+    await request.save();
+
+    // ── Post-completion hooks (non-blocking) ───────────────────────────────────
+    runPostCompletionHooks(request, request.user).catch(e => console.error('[Calibre]', e.message));
+
+    // Notify user
+    const user = await User.findById(request.user);
+    if (user) {
+      try { if (user.emailVerified && user.email) await sendBookCompletedEmail(user, request); } catch {}
+      try { await sendPushToUser(user._id, { title: '📖 Livre disponible !', body: `"${request.title}" est maintenant disponible.`, url: '/dashboard' }); } catch {}
+      try { await Notification.create({ user: user._id, type: 'request_completed', title: request.title, author: request.author, message: `"${request.title}" a été téléchargé.` }); } catch {}
+    }
+
+    return { filename, filePath: `books/${filename}` };
   });
-
-  const cd = fileRes.headers['content-disposition'] || '';
-  const fnMatch = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i);
-  let filename = fnMatch ? decodeURIComponent(fnMatch[1].trim()) : `valentine_${ebookId}.epub`;
-  filename = filename.replace(/[<>:"/\\|?*]/g, '').trim() || `valentine_${ebookId}.epub`;
-
-  const uploadsDir = path.join(__dirname, '../../uploads/books');
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  fs.writeFileSync(path.join(uploadsDir, filename), Buffer.from(fileRes.data));
-
-  // Complete the request
-  const request = await BookRequest.findById(requestId);
-  if (!request) throw new Error('Demande introuvable');
-  if (request.status === 'completed') throw new Error('Demande déjà complétée');
-
-  request.status = 'completed';
-  request.filePath = `books/${filename}`;
-  request.completedAt = new Date();
-  if (!Array.isArray(request.statusHistory)) request.statusHistory = [];
-  request.statusHistory.push({ status: 'completed', changedBy: 'admin-valentine', note: 'Téléchargé manuellement via Valentine' });
-  await request.save();
-
-  // ── Post-completion hooks (non-blocking) ───────────────────────────────────
-  runPostCompletionHooks(request, request.user).catch(e => console.error('[Calibre]', e.message));
-
-  // Notify user
-  const user = await User.findById(request.user);
-  if (user) {
-    try { if (user.emailVerified && user.email) await sendBookCompletedEmail(user, request); } catch {}
-    try { await sendPushToUser(user._id, { title: '📖 Livre disponible !', body: `"${request.title}" est maintenant disponible.`, url: '/dashboard' }); } catch {}
-    try { await Notification.create({ user: user._id, type: 'request_completed', title: request.title, author: request.author, message: `"${request.title}" a été téléchargé.` }); } catch {}
-  }
-
-  return { filename, filePath: `books/${filename}` };
 }
