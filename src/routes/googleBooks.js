@@ -3,6 +3,13 @@ import axios from 'axios';
 
 const router = express.Router();
 
+// Toutes les formes d'apostrophe rencontrées : droite ('), courbes (‘ ’), backtick (`)
+const APOSTROPHE_RE = /['‘’`]/g;
+
+function stripAccents(s) {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
 function authorVariants(name) {
   const norm = s => s.replace(/\s+/g, ' ').trim();
   const variants = new Set();
@@ -12,7 +19,7 @@ function authorVariants(name) {
   const noHyphen = name.replace(/-/g, ' ');
   variants.add(noHyphen);
   // apostrophes → espace
-  const noApos = name.replace(/['']/g, ' ');
+  const noApos = name.replace(APOSTROPHE_RE, ' ');
   variants.add(noApos);
   // espaces après un point supprimés : "J. K." → "J.K."
   const compactDots = name.replace(/\.\s+/g, '.');
@@ -23,7 +30,17 @@ function authorVariants(name) {
   // compact sans points : "J.K. Rowling" → "JK Rowling"
   variants.add(compactDots.replace(/\./g, ''));
   // combinaisons tirets + apostrophes
-  variants.add(noHyphen.replace(/['']/g, ' '));
+  const noHyphenNoApos = noHyphen.replace(APOSTROPHE_RE, ' ');
+  variants.add(noHyphenNoApos);
+  // combinaisons tirets + points
+  variants.add(noHyphen.replace(/\./g, ''));
+  // combinaisons apostrophes + points
+  variants.add(noApos.replace(/\./g, ''));
+  // tirets + apostrophes + points, tout nettoyé
+  variants.add(noHyphenNoApos.replace(/\./g, ''));
+  // accents retirés (et combiné avec les nettoyages ci-dessus)
+  variants.add(stripAccents(name));
+  variants.add(stripAccents(noHyphenNoApos.replace(/\./g, '')));
 
   return [...variants].map(norm).filter(Boolean);
 }
@@ -83,29 +100,71 @@ function buildCombinedQueries(q) {
   return queries;
 }
 
-async function fetchFromGoogle(queryStr, limit, startIndex = 0, options = {}) {
-  const response = await axios.get(
-    'https://www.googleapis.com/books/v1/volumes',
-    {
-      params: {
-        q:          queryStr,
-        maxResults: limit,
-        startIndex,
-        key:        GOOGLE_BOOKS_API_KEY,
-        printType:  'books',
-        orderBy:    'relevance',
-        ...(options.langRestrict && { langRestrict: options.langRestrict }),
-      },
-      timeout: 8000,
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Nombre de tentatives + backoff pour absorber les erreurs réseau/timeout/429 transitoires
+async function withRetry(fn, { retries = 2, label = '' } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const status = err.response?.status;
+      const retryable = !status || status === 429 || status === 503 || err.code === 'ECONNABORTED' || err.code === 'ECONNRESET';
+      if (!retryable || attempt === retries) break;
+
+      const retryAfterHeader = err.response?.headers?.['retry-after'];
+      const retryAfterMs = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : null;
+      const backoffMs = retryAfterMs || (500 * Math.pow(2, attempt));
+
+      console.warn(`[Books] ${label} échec (${status || err.code || err.message}), retry ${attempt + 1}/${retries} dans ${backoffMs}ms`);
+      await sleep(backoffMs);
     }
-  );
-  return {
-    items:      response.data.items      || [],
-    totalItems: response.data.totalItems || 0,
-  };
+  }
+  throw lastErr;
+}
+
+async function fetchFromGoogle(queryStr, limit, startIndex = 0, options = {}) {
+  return withRetry(async () => {
+    const response = await axios.get(
+      'https://www.googleapis.com/books/v1/volumes',
+      {
+        params: {
+          q:          queryStr,
+          maxResults: limit,
+          startIndex,
+          key:        GOOGLE_BOOKS_API_KEY,
+          printType:  'books',
+          orderBy:    'relevance',
+          ...(options.langRestrict && { langRestrict: options.langRestrict }),
+        },
+        timeout: 8000,
+      }
+    );
+    return {
+      items:      response.data.items      || [],
+      totalItems: response.data.totalItems || 0,
+    };
+  }, { label: `Google Books "${queryStr}"` });
 }
 
 const toHttps = (url) => url ? url.replace(/^http:\/\//, 'https://') : url;
+
+// Lance plusieurs requêtes Google Books en parallèle et retourne le premier résultat non vide,
+// dans l'ordre de priorité des queries (au lieu d'un enchaînement séquentiel bloquant).
+async function firstNonEmptyGoogleResult(queries, limit, startIndex, options) {
+  const settled = await Promise.allSettled(
+    queries.map(q => fetchFromGoogle(q, limit, startIndex, options))
+  );
+  for (let i = 0; i < settled.length; i++) {
+    const s = settled[i];
+    if (s.status === 'fulfilled' && s.value.items.length > 0) return s.value;
+  }
+  return { items: [], totalItems: 0 };
+}
 
 // ─── Open Library fallback ────────────────────────────────────────────────────
 
@@ -154,42 +213,50 @@ function normalizeOpenLibrarySearch(doc) {
 }
 
 async function fetchFromOpenLibraryISBN(isbn) {
-  const res = await axios.get('https://openlibrary.org/api/books', {
-    params: { bibkeys: `ISBN:${isbn}`, format: 'json', jscmd: 'data' },
-    timeout: 8000,
-  });
-  const data = res.data[`ISBN:${isbn}`];
-  return data ? normalizeOpenLibraryISBN(data, isbn) : null;
+  return withRetry(async () => {
+    const res = await axios.get('https://openlibrary.org/api/books', {
+      params: { bibkeys: `ISBN:${isbn}`, format: 'json', jscmd: 'data' },
+      timeout: 8000,
+    });
+    const data = res.data[`ISBN:${isbn}`];
+    return data ? normalizeOpenLibraryISBN(data, isbn) : null;
+  }, { label: `OpenLibrary ISBN "${isbn}"` });
 }
 
 async function fetchFromOpenLibrarySearch(q, limit) {
-  const res = await axios.get('https://openlibrary.org/search.json', {
-    params: {
-      q,
-      limit,
-      fields: 'key,title,author_name,cover_i,first_publish_year,number_of_pages_median',
-    },
-    timeout: 8000,
-  });
-  return (res.data.docs || []).map(normalizeOpenLibrarySearch);
+  return withRetry(async () => {
+    const res = await axios.get('https://openlibrary.org/search.json', {
+      params: {
+        q,
+        limit,
+        fields: 'key,title,author_name,cover_i,first_publish_year,number_of_pages_median',
+      },
+      timeout: 8000,
+    });
+    return (res.data.docs || []).map(normalizeOpenLibrarySearch);
+  }, { label: `OpenLibrary search "${q}"` });
 }
 
 async function fetchFromOpenLibraryAuthor(author, limit = 40) {
   const variants = authorVariants(author);
   for (const v of variants) {
     try {
-      const res = await axios.get('https://openlibrary.org/search.json', {
-        params: {
-          author: v,
-          language: 'fre',
-          limit,
-          fields: 'key,title,author_name,cover_i,first_publish_year,number_of_pages_median,language',
-        },
-        timeout: 8000,
-      });
-      const docs = res.data.docs || [];
+      const docs = await withRetry(async () => {
+        const res = await axios.get('https://openlibrary.org/search.json', {
+          params: {
+            author: v,
+            language: 'fre',
+            limit,
+            fields: 'key,title,author_name,cover_i,first_publish_year,number_of_pages_median,language',
+          },
+          timeout: 8000,
+        });
+        return res.data.docs || [];
+      }, { label: `OpenLibrary author "${v}"` });
       if (docs.length > 0) return docs.map(normalizeOpenLibrarySearch);
-    } catch {}
+    } catch (err) {
+      console.warn(`[Books] OpenLibrary author "${v}" échoué après retries:`, err.message);
+    }
   }
   return [];
 }
@@ -259,15 +326,15 @@ router.get('/series-tomes', async (req, res) => {
     const seen = new Set();
     let rawItems = [];
 
-    for (const q of queries) {
-      const result = await fetchFromGoogle(q, 40, 0);
-      for (const item of result.items) {
+    const settled = await Promise.allSettled(queries.map(q => fetchFromGoogle(q, 40, 0)));
+    for (const s of settled) {
+      if (s.status !== 'fulfilled') continue;
+      for (const item of s.value.items) {
         if (!seen.has(item.id)) {
           seen.add(item.id);
           rawItems.push(item);
         }
       }
-      if (rawItems.length >= 20) break;
     }
 
     // Filtrer : exclure le livre actuel, coffrets, analyses, hors-série
@@ -350,11 +417,8 @@ router.get('/search', async (req, res) => {
     let totalItems = 0;
 
     if (authorOnly) {
-      let pool = [];
-      for (const queryStr of queries) {
-        const result = await fetchFromGoogle(queryStr, 40, 0, { langRestrict: 'fr' });
-        if (result.items.length > 0) { pool = result.items; break; }
-      }
+      const result = await firstNonEmptyGoogleResult(queries, 40, 0, { langRestrict: 'fr' });
+      let pool = result.items;
       pool = pool.filter(item =>
         !item.volumeInfo?.language || item.volumeInfo.language === 'fr'
       );
@@ -372,14 +436,9 @@ router.get('/search', async (req, res) => {
       rawItems   = pool.slice(offset, offset + limit);
       totalItems = pool.length;
     } else {
-      for (const queryStr of queries) {
-        const result = await fetchFromGoogle(queryStr, limit, offset);
-        if (result.items.length > 0) {
-          rawItems   = result.items;
-          totalItems = result.totalItems;
-          break;
-        }
-      }
+      const result = await firstNonEmptyGoogleResult(queries, limit, offset);
+      rawItems   = result.items;
+      totalItems = result.totalItems;
       // Fallback titre brut si aucun résultat structuré (page 1 seulement)
       if (rawItems.length === 0 && queries.length > 1 && offset === 0 && q?.trim()) {
         const result = await fetchFromGoogle(q.trim(), limit, 0);
@@ -429,15 +488,24 @@ router.get('/search', async (req, res) => {
 
     res.json(responseData);
   } catch (error) {
-    console.error('Erreur lors de la recherche Google Books:', error.message);
+    console.error(`Erreur lors de la recherche Google Books (q="${req.query.q || ''}", author="${req.query.author || ''}"):`, error.message);
 
     // Si rate limit (429) ou service indisponible (503), retourner cache expiré si dispo
     if (error.response?.status === 429 || error.response?.status === 503) {
-      const limit  = Math.min(parseInt(req.query.maxResults || 10), 10);
-      const offset = parseInt(req.query.startIndex) || 0;
-      const cacheKey = getCacheKey(req.query.q, req.query.author, '', offset, limit);
+      const limit       = Math.min(parseInt(req.query.maxResults || 10), 10);
+      const offset       = Math.max(parseInt(req.query.startIndex) || 0, 0);
+      const authorOnlyErr = !!(req.query.author?.trim() && !req.query.q?.trim());
+      const cacheKey      = authorOnlyErr
+        ? getCacheKey(req.query.q, req.query.author, 'pool', 0, 40)
+        : getCacheKey(req.query.q, req.query.author, '', offset, limit);
       const stale = searchCache.get(cacheKey);
-      if (stale) return res.json(stale.data);
+      if (stale) {
+        if (authorOnlyErr) {
+          const pool = stale.data.pool;
+          return res.json({ results: formatPool(pool.slice(offset, offset + limit)), totalItems: pool.length });
+        }
+        return res.json(stale.data);
+      }
     }
 
     res.status(500).json({
