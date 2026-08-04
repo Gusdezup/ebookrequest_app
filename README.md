@@ -71,6 +71,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
   - **Par auteur** — résultats filtrés en français, triés du plus récent au plus ancien
   - **Auteur + Titre combinés** — saisir `Prénom Nom Titre du livre` sans séparateur (ex : `Virginie Grimaldi D'autres printemps`)
   - **Scan de code-barres** — scanner l'ISBN directement depuis la caméra de l'appareil
+- Recherche résiliente : retry automatique avec backoff sur les erreurs Google Books transitoires (503/429), requêtes multi-variantes en parallèle (formes du nom d'auteur, avec/sans titre), fallback automatique vers Open Library si Google Books échoue, et proxy sortant optionnel en cas de throttling persistant (voir [Proxy sortant](#proxy-sortant-optionnel))
 - Vérification de disponibilité à la soumission (flux RSS PreDB.me + API PreDB.fr)
 - Quota de demandes configurable par utilisateur (nombre + fenêtre glissante en jours)
 - Soumission admin au nom d'un autre utilisateur
@@ -216,6 +217,8 @@ cp .env.example .env
 
 #### Email
 
+> **Optionnel depuis la 1.5.2** — configurable directement dans le panel admin (**Réglages → Fournisseur Email**). Les variables ci-dessous ne servent plus que de valeur de repli : au premier accès à cet onglet, si elles sont présentes, leur contenu est automatiquement importé en base (migration transparente, aucune ressaisie nécessaire).
+
 | Variable | Description |
 |---|---|
 | `EMAIL_PROVIDER` | `smtp` (défaut) ou `resend` |
@@ -243,6 +246,8 @@ npx web-push generate-vapid-keys
 
 #### Intelligence artificielle
 
+> **Optionnel depuis la 1.5.2** — configurable directement dans le panel admin (**Réglages → Fournisseur IA**), avec migration automatique des variables `.env` existantes au premier accès, comme pour l'email.
+
 | Variable | Description |
 |---|---|
 | `AI_PROVIDER` | `openai`, `ollama` ou `claude` |
@@ -256,6 +261,8 @@ npx web-push generate-vapid-keys
 
 #### Connecteurs & services externes
 
+> `GOOGLE_BOOKS_API_KEY` et `RSS_FEED_URL` sont **optionnelles depuis la 1.5.2** — configurables dans **Réglages**, avec la même migration automatique depuis le `.env` que l'email et l'IA.
+
 | Variable | Description |
 |---|---|
 | `GOOGLE_BOOKS_API_KEY` | Clé API Google Books (recherche et métadonnées) |
@@ -263,7 +270,7 @@ npx web-push generate-vapid-keys
 | `APPRISE_CONFIG_PATH` | Chemin local vers le dossier de configuration Apprise (défaut : `./apprise-config`). Nécessaire si `APPRISE_STATEFUL_MODE=simple` est activé sur le conteneur Apprise. |
 | `TZ` | Fuseau horaire des conteneurs (ex : `Europe/Paris`). Utile pour que les logs s'affichent à la bonne heure. |
 | `FLARESOLVERR_URL` | URL du service FlareSolverr pour contourner les protections Cloudflare (défaut : `http://flaresolverr:8191`) |
-| `RSS_FEED_URL` | URL du flux RSS PreDB.me utilisé pour vérifier la disponibilité d'un livre à la soumission (défaut : `https://predb.me/?cats=books-ebooks&rss=1`). Optionnel si l'API PreDB.fr est configurée dans le panel admin. |
+| `RSS_FEED_URL` | URL du flux RSS PreDB.me utilisé pour vérifier la disponibilité d'un livre à la soumission (défaut : `https://predb.me/?cats=books-ebooks&rss=1`). |
 | `MCP_PORT` | Port du serveur MCP (défaut : `3035`) |
 | `MCP_URL` | URL publique du serveur MCP (ex : `https://mcp.ndd.fr`). Affichée aux utilisateurs dans les paramètres. Optionnel — si absent, la section MCP est masquée. |
 | `MCP_INTERNAL_URL` | URL interne du serveur MCP pour le health check depuis le backend (défaut : `http://ebookrequest-mcp:3035`). Utile quand le backend et le MCP sont sur le même réseau Docker — évite de passer par l'URL publique. |
@@ -293,6 +300,14 @@ apprise:
     - "8000:8000"
   restart: unless-stopped
 ```
+
+#### Proxy sortant (optionnel)
+
+Si votre IP serveur est throttlée/bloquée par Google Books ou Open Library (rate-limit, IP d'hébergeur mutualisé déjà signalée), un proxy HTTP(S) sortant peut être configuré depuis **Réglages → Proxy sortant** dans le panel admin — pas de variable d'environnement, uniquement via l'interface. Deux modes disponibles :
+- **Repli** (par défaut) — connexion directe en priorité, proxy utilisé seulement en cas d'échec.
+- **Par défaut** — proxy en priorité, repli sur la connexion directe si le proxy échoue.
+
+Le proxy peut être un service tiers ou auto-hébergé (ex : Squid sur un serveur avec une IP résidentielle), avec authentification optionnelle (utilisateur/mot de passe).
 
 ### Lancer l'application
 

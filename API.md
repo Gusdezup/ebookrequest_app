@@ -585,6 +585,114 @@ curl -X POST https://app.ndd.fr/api/connectors/predb/test \
 
 ---
 
+## Réglages (admin)
+
+Config transverse (Google Books, IA, Email, RSS, Proxy sortant) — DB en priorité, repli sur `.env` avec migration automatique au premier `GET` si la variable correspondante existe déjà.
+
+### `GET /api/connectors/googlebooks`
+```bash
+curl https://app.ndd.fr/api/connectors/googlebooks \
+  -H "Authorization: Bearer <token>"
+```
+
+### `PUT /api/connectors/googlebooks`
+```bash
+curl -X PUT https://app.ndd.fr/api/connectors/googlebooks \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "apiKey": "AIzaSy..."}'
+```
+
+### `POST /api/connectors/googlebooks/test`
+```bash
+curl -X POST https://app.ndd.fr/api/connectors/googlebooks/test \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"apiKey": "AIzaSy..."}'
+```
+
+### `GET /api/connectors/aiprovider`
+```bash
+curl https://app.ndd.fr/api/connectors/aiprovider \
+  -H "Authorization: Bearer <token>"
+```
+
+### `PUT /api/connectors/aiprovider`
+```bash
+curl -X PUT https://app.ndd.fr/api/connectors/aiprovider \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "provider": "openai", "model": "gpt-4o-mini", "apiKey": "sk-..."}'
+```
+
+### `POST /api/connectors/aiprovider/test`
+```bash
+curl -X POST https://app.ndd.fr/api/connectors/aiprovider/test \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "openai", "model": "gpt-4o-mini", "apiKey": "sk-..."}'
+```
+
+### `GET /api/connectors/emailprovider`
+```bash
+curl https://app.ndd.fr/api/connectors/emailprovider \
+  -H "Authorization: Bearer <token>"
+```
+
+### `PUT /api/connectors/emailprovider`
+```bash
+curl -X PUT https://app.ndd.fr/api/connectors/emailprovider \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "provider": "smtp", "smtpHost": "smtp.gmail.com", "smtpPort": 465, "smtpSecure": true, "username": "user@gmail.com", "apiKey": "mot-de-passe-smtp", "fromAddress": "noreply@ndd.fr", "fromName": "EbookRequest"}'
+```
+
+### `POST /api/connectors/emailprovider/test`
+```bash
+curl -X POST https://app.ndd.fr/api/connectors/emailprovider/test \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "smtp", "smtpHost": "smtp.gmail.com", "smtpPort": 465, "smtpSecure": true, "username": "user@gmail.com", "apiKey": "mot-de-passe-smtp", "fromAddress": "noreply@ndd.fr", "fromName": "EbookRequest", "to": "test@example.com"}'
+```
+
+### `GET /api/connectors/rss`
+```bash
+curl https://app.ndd.fr/api/connectors/rss \
+  -H "Authorization: Bearer <token>"
+```
+
+### `PUT /api/connectors/rss`
+```bash
+curl -X PUT https://app.ndd.fr/api/connectors/rss \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "url": "https://predb.me/?cats=books-ebooks&rss=1"}'
+```
+
+### `GET /api/connectors/proxy`
+```bash
+curl https://app.ndd.fr/api/connectors/proxy \
+  -H "Authorization: Bearer <token>"
+```
+
+### `PUT /api/connectors/proxy`
+```bash
+curl -X PUT https://app.ndd.fr/api/connectors/proxy \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "url": "http://mon-proxy.example.com:8080", "mode": "fallback", "username": "", "password": ""}'
+```
+
+### `POST /api/connectors/proxy/test`
+```bash
+curl -X POST https://app.ndd.fr/api/connectors/proxy/test \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://mon-proxy.example.com:8080", "username": "", "password": ""}'
+```
+
+---
+
 ## OPDS
 
 Le catalogue OPDS est accessible via le token d'accès intégré dans l'URL :
