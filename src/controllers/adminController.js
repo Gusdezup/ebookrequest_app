@@ -10,6 +10,8 @@ import { getValentineQuota, getValentineCircuitStatus } from '../services/valent
 import { pingAnnasArchive, getAnnasArchiveConfig } from '../services/annasArchiveService.js';
 import { testCalibreConnection } from '../services/calibreService.js';
 import { decrypt } from '../services/cryptoService.js';
+import { getGoogleBooksApiKey } from '../services/googleBooksConfig.js';
+import { getProxyConfig, getProxyAgent } from '../services/proxyConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,6 +64,55 @@ async function checkAnnasArchiveConnector() {
     return { enabled: true, connected: true, error: null };
   } catch (err) {
     return { enabled: true, connected: false, error: err.message };
+  }
+}
+
+async function checkGoogleBooks() {
+  const apiKey = await getGoogleBooksApiKey();
+  if (!apiKey) return { enabled: false, connected: false, error: null };
+  try {
+    let res;
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      res = await axios.get('https://www.googleapis.com/books/v1/volumes', {
+        params: { q: 'test', maxResults: 1, key: apiKey },
+        timeout: 6000,
+        validateStatus: () => true,
+      });
+      if (res.status !== 503 || attempt === maxAttempts - 1) break;
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+    }
+    if (res.status === 200) {
+      return {
+        enabled: true,
+        connected: true,
+        error: null,
+        totalItems: res.data?.totalItems ?? null,
+      };
+    }
+    const reason = res.data?.error?.errors?.[0]?.reason || res.data?.error?.status || `HTTP ${res.status}`;
+    return { enabled: true, connected: false, error: reason };
+  } catch (err) {
+    return { enabled: true, connected: false, error: err.message };
+  }
+}
+
+async function checkProxy() {
+  const proxy = await getProxyConfig();
+  if (!proxy.enabled) return { enabled: false, connected: false, mode: null, error: null };
+  try {
+    const res = await axios.get('https://api.ipify.org?format=json', {
+      httpsAgent: getProxyAgent(proxy.url),
+      proxy: false,
+      timeout: 8000,
+      validateStatus: () => true,
+    });
+    if (res.status === 200 && res.data?.ip) {
+      return { enabled: true, connected: true, mode: proxy.mode, error: null, exitIp: res.data.ip };
+    }
+    return { enabled: true, connected: false, mode: proxy.mode, error: `HTTP ${res.status}` };
+  } catch (err) {
+    return { enabled: true, connected: false, mode: proxy.mode, error: err.message };
   }
 }
 
@@ -158,7 +209,7 @@ export const getAdminStats = async (req, res) => {
       ? Math.round((completedRequests / totalRequests) * 100)
       : 0;
 
-    const providerInfo = getProviderInfo();
+    const providerInfo = await getProviderInfo();
     const uploadsStats = getUploadsStats();
 
     // Statistiques des requêtes IA
@@ -306,8 +357,8 @@ function withTimeout(promise, ms, fallback) {
 
 export const getServicesHealth = async (req, res) => {
   try {
-    const providerInfo = getProviderInfo();
-    const [aiStatus, flareSolverr, apprise, calibreWeb, valentine, annasArchive, mcp] = await Promise.all([
+    const providerInfo = await getProviderInfo();
+    const [aiStatus, flareSolverr, apprise, calibreWeb, valentine, annasArchive, mcp, googleBooks, proxy] = await Promise.all([
       withTimeout(testAIProviderConnection(), 8000, { connected: false, error: 'timeout' }),
       withTimeout(checkFlareSolverr(), 6000, { connected: false, error: 'timeout' }),
       withTimeout(checkAppriseServer(), 6000, { reachable: false, error: 'timeout' }),
@@ -315,6 +366,8 @@ export const getServicesHealth = async (req, res) => {
       withTimeout(checkValentineConnector(), 8000, { enabled: true, connected: false, quota: null, error: 'timeout' }),
       withTimeout(checkAnnasArchiveConnector(), 8000, { enabled: true, connected: false, error: 'timeout' }),
       withTimeout(checkMcpServer(), 6000, { enabled: false, connected: false, error: 'timeout' }),
+      withTimeout(checkGoogleBooks(), 6000, { enabled: true, connected: false, error: 'timeout' }),
+      withTimeout(checkProxy(), 8000, { enabled: false, connected: false, mode: null, error: 'timeout' }),
     ]);
 
     res.json({
@@ -359,6 +412,19 @@ export const getServicesHealth = async (req, res) => {
           connected: mcp.connected,
           url: mcp.url || null,
           error: mcp.error || null,
+        },
+        googleBooks: {
+          enabled: googleBooks.enabled,
+          connected: googleBooks.connected,
+          error: googleBooks.error || null,
+          totalItems: googleBooks.totalItems ?? null,
+        },
+        proxy: {
+          enabled: proxy.enabled,
+          connected: proxy.connected,
+          mode: proxy.mode || null,
+          exitIp: proxy.exitIp || null,
+          error: proxy.error || null,
         },
       },
     });

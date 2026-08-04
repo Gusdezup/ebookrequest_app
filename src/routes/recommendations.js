@@ -19,7 +19,7 @@ async function getUserBookRequests(userId) {
 // ── GET /api/recommendations ──────────────────────────────────────────────────
 // Retourne le cache si disponible, génère la première fois (gratuit, sans quota)
 router.get('/', requireAuth, async (req, res) => {
-  if (!isAIConfigured()) {
+  if (!(await isAIConfigured())) {
     return res.json({
       success: true,
       aiEnabled: false,
@@ -86,7 +86,7 @@ router.get('/', requireAuth, async (req, res) => {
 // ── POST /api/recommendations/regenerate ─────────────────────────────────────
 // Régénère en consommant 1 quota (max 3 par 7 jours)
 router.post('/regenerate', requireAuth, async (req, res) => {
-  if (!isAIConfigured()) {
+  if (!(await isAIConfigured())) {
     return res.json({
       success: true,
       aiEnabled: false,

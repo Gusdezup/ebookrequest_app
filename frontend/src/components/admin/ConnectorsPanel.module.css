@@ -241,6 +241,18 @@ select.fieldInput {
   line-height: 1.4;
 }
 
+.linkBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.linkBtn:hover { color: var(--color-primary-hover, var(--color-primary)); }
+
 /* ── Toggle row (style Apprise events) ── */
 .toggleOptionRow {
   display: flex;

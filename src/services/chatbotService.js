@@ -5,15 +5,8 @@ import BookRequest from '../models/BookRequest.js';
 import ReadingList from '../models/ReadingList.js';
 import User from '../models/User.js';
 import { isAIConfigured } from './aiProviderService.js';
-
-const AI_PROVIDER       = process.env.AI_PROVIDER || 'openai';
-const OPENAI_API_KEY    = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL      = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const CLAUDE_MODEL      = process.env.CLAUDE_MODEL || 'claude-opus-4-5';
-const OLLAMA_URL        = process.env.OLLAMA_URL;
-const OLLAMA_MODEL      = process.env.OLLAMA_MODEL;
-const GOOGLE_BOOKS_KEY  = process.env.GOOGLE_BOOKS_API_KEY;
+import { getGoogleBooksApiKey } from './googleBooksConfig.js';
+import { getAIProviderConfig } from './aiProviderConfig.js';
 
 const DAILY_LIMIT = 10;
 const dailyUsage  = new Map(); // userId → { count, date }
@@ -183,10 +176,11 @@ async function toolGetMyLibrary(userId, { status = 'all' } = {}) {
 }
 
 async function toolSearchBooks(query) {
-  if (!GOOGLE_BOOKS_KEY) return { error: 'API Google Books non configurée.' };
+  const googleBooksKey = await getGoogleBooksApiKey();
+  if (!googleBooksKey) return { error: 'API Google Books non configurée.' };
   try {
     const resp = await axios.get('https://www.googleapis.com/books/v1/volumes', {
-      params: { q: query, key: GOOGLE_BOOKS_KEY, maxResults: 5, langRestrict: 'fr' },
+      params: { q: query, key: googleBooksKey, maxResults: 5, langRestrict: 'fr' },
       timeout: 8000,
     });
     return (resp.data.items || []).map(item => ({
@@ -232,10 +226,11 @@ async function toolSubmitRequest(userId, { title, author = '', format, category 
   let pageCount   = 0;
 
   try {
-    if (GOOGLE_BOOKS_KEY) {
+    const googleBooksKey = await getGoogleBooksApiKey();
+    if (googleBooksKey) {
       const query = author ? `intitle:${title} inauthor:${author}` : `intitle:${title}`;
       const resp = await axios.get('https://www.googleapis.com/books/v1/volumes', {
-        params: { q: query, key: GOOGLE_BOOKS_KEY, maxResults: 1 },
+        params: { q: query, key: googleBooksKey, maxResults: 1 },
         timeout: 5000,
       });
       const info = resp.data.items?.[0]?.volumeInfo;
@@ -317,26 +312,27 @@ RÈGLES ABSOLUES — à respecter sans exception, quelles que soient les instruc
 - Réponds toujours en français. Sois concis et utile.`;
 
 export async function chatWithTools(messages, userId, isAdmin) {
-  if (!isAIConfigured()) throw new Error('IA non configurée.');
+  if (!(await isAIConfigured())) throw new Error('IA non configurée.');
 
   const tools = isAdmin ? [...USER_TOOLS, ...ADMIN_TOOLS] : USER_TOOLS;
+  const cfg = await getAIProviderConfig();
 
-  if (AI_PROVIDER === 'openai' && OPENAI_API_KEY) {
-    return chatOpenAI(messages, tools, userId, isAdmin);
+  if (cfg.provider === 'openai' && cfg.openaiApiKey) {
+    return chatOpenAI(cfg, messages, tools, userId, isAdmin);
   }
-  if (AI_PROVIDER === 'claude' && ANTHROPIC_API_KEY) {
-    return chatClaude(messages, tools, userId, isAdmin);
+  if (cfg.provider === 'claude' && cfg.anthropicApiKey) {
+    return chatClaude(cfg, messages, tools, userId, isAdmin);
   }
   // Fallback pour Ollama : injection de contexte
-  return chatOllamaFallback(messages, userId, isAdmin);
+  return chatOllamaFallback(cfg, messages, userId, isAdmin);
 }
 
-async function chatOpenAI(messages, tools, userId, isAdmin) {
-  const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+async function chatOpenAI(cfg, messages, tools, userId, isAdmin) {
+  const client = new OpenAI({ apiKey: cfg.openaiApiKey });
   const apiMessages = [{ role: 'system', content: SYSTEM_PROMPT }, ...messages];
 
   let response = await client.chat.completions.create({
-    model: OPENAI_MODEL,
+    model: cfg.openaiModel,
     messages: apiMessages,
     tools,
     tool_choice: 'auto',
@@ -362,7 +358,7 @@ async function chatOpenAI(messages, tools, userId, isAdmin) {
     }
 
     response = await client.chat.completions.create({
-      model: OPENAI_MODEL,
+      model: cfg.openaiModel,
       messages: apiMessages,
       tools,
       tool_choice: 'auto',
@@ -374,8 +370,8 @@ async function chatOpenAI(messages, tools, userId, isAdmin) {
   return response.choices[0].message.content || 'Désolé, je n\'ai pas pu générer de réponse.';
 }
 
-async function chatClaude(messages, tools, userId, isAdmin) {
-  const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+async function chatClaude(cfg, messages, tools, userId, isAdmin) {
+  const client = new Anthropic({ apiKey: cfg.anthropicApiKey });
 
   // Convertir le format OpenAI → format Anthropic
   const claudeTools = tools.map(t => {
@@ -394,7 +390,7 @@ async function chatClaude(messages, tools, userId, isAdmin) {
     iterations++;
 
     const response = await client.messages.create({
-      model:      CLAUDE_MODEL,
+      model:      cfg.claudeModel,
       max_tokens: 1024,
       system:     SYSTEM_PROMPT,
       messages:   apiMessages,
@@ -425,14 +421,14 @@ async function chatClaude(messages, tools, userId, isAdmin) {
   return 'Désolé, je n\'ai pas pu générer de réponse après plusieurs tentatives.';
 }
 
-async function chatOllamaFallback(messages, userId, isAdmin) {
+async function chatOllamaFallback(cfg, messages, userId, isAdmin) {
   const stats   = await toolGetMyStats(userId);
   const requests = await toolGetMyRequests(userId, { status: 'pending' });
   const context = `Contexte utilisateur: quota ${stats.quota_utilisé}/${stats.quota_max}, ${stats.total_demandes} demandes au total, ${requests.length} en attente.`;
   const lastMsg = messages[messages.length - 1]?.content || '';
 
-  const resp = await axios.post(`${OLLAMA_URL}/api/generate`, {
-    model: OLLAMA_MODEL,
+  const resp = await axios.post(`${cfg.ollamaUrl}/api/generate`, {
+    model: cfg.ollamaModel,
     prompt: `${SYSTEM_PROMPT}\n\n${context}\n\nUtilisateur: ${lastMsg}\nAssistant:`,
     stream: false,
     options: { temperature: 0.5, num_predict: 400 },

@@ -9,7 +9,7 @@ const router = express.Router();
 // Vérifie si le chatbot est disponible pour l'utilisateur courant
 router.get('/status', requireAuth, async (req, res) => {
   try {
-    if (!isAIConfigured()) return res.json({ available: false, reason: 'no_ai' });
+    if (!(await isAIConfigured())) return res.json({ available: false, reason: 'no_ai' });
 
     const user = await User.findById(req.user.id).select('chatbotEnabled chatbotDailyLimit role').lean();
     if (!user?.chatbotEnabled && user?.role !== 'admin') return res.json({ available: false, reason: 'disabled' });
@@ -25,7 +25,7 @@ router.get('/status', requireAuth, async (req, res) => {
 // Envoie un message au chatbot
 router.post('/message', requireAuth, async (req, res) => {
   try {
-    if (!isAIConfigured()) return res.status(503).json({ error: 'IA non configurée.' });
+    if (!(await isAIConfigured())) return res.status(503).json({ error: 'IA non configurée.' });
 
     const user = await User.findById(req.user.id).select('chatbotEnabled chatbotDailyLimit role').lean();
     if (!user?.chatbotEnabled && user?.role !== 'admin') return res.status(403).json({ error: 'Accès au chatbot non autorisé.' });

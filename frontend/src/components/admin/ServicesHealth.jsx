@@ -66,6 +66,40 @@ const SERVICE_DEFS = [
     error: (s) => s.error,
   },
   {
+    key: 'googleBooks',
+    label: () => 'Google Books',
+    icon: (
+      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      </svg>
+    ),
+    isEnabled: (s) => s.enabled,
+    isConnected: (s) => s.connected,
+    details: (s) => s.connected && s.totalItems != null ? [`Résultats trouvés (test) : ${s.totalItems}`] : [],
+    error: (s) => s.error,
+  },
+  {
+    key: 'proxy',
+    label: () => 'Proxy sortant',
+    icon: (
+      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+      </svg>
+    ),
+    isEnabled: (s) => s.enabled,
+    isConnected: (s) => s.connected,
+    hideIfDisabled: true,
+    details: (s) => {
+      const lines = [];
+      if (s.mode) lines.push(`Mode : ${s.mode === 'default' ? 'par défaut' : 'repli'}`);
+      if (s.exitIp) lines.push(`IP de sortie : ${s.exitIp}`);
+      return lines;
+    },
+    error: (s) => s.error,
+  },
+  {
     key: 'valentine',
     label: () => 'Valentine.wtf',
     icon: (
@@ -230,6 +264,7 @@ const ServicesHealth = () => {
           const s = services[def.key];
           if (!s) return null;
           const enabled = def.isEnabled(s);
+          if (def.hideIfDisabled && !enabled) return null;
           const connected = enabled && def.isConnected(s);
           const isWarning = enabled && !!def.isWarning?.(s);
           const details = def.details(s);

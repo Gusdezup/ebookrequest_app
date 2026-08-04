@@ -1,7 +1,6 @@
 import fetch from 'node-fetch';
 import { parseStringPromise } from 'xml2js';
-
-const RSS_BASE_URL = process.env.RSS_FEED_URL || 'https://predb.me/?cats=books-ebooks&rss=1';
+import { getRSSFeedUrl } from './rssConfig.js';
 
 export function normalizeString(str) {
   if (!str) return '';
@@ -105,7 +104,7 @@ export function calculateMatchScore(searchTitle, searchAuthor, rssTitle, rssAuth
 }
 
 async function fetchRSSFeed(searchQuery = '') {
-  let url = RSS_BASE_URL;
+  let url = await getRSSFeedUrl();
   if (searchQuery) {
     url += `&search=${encodeURIComponent(searchQuery)}`;
   }

@@ -3,10 +3,9 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import AIRequestLog from '../models/AIRequestLog.js';
 import { generateCompletion } from './aiProviderService.js';
+import { getGoogleBooksApiKey } from './googleBooksConfig.js';
 
 dotenv.config();
-
-const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY;
 
 // Génère les bestsellers du mois pour les catégories spécifiées
 export const generateBestsellers = async (categories = [], userId = null, username = 'admin') => {
@@ -190,7 +189,8 @@ function parseBestsellers(response, categories) {
 
 // Enrichit les bestsellers avec les données Google Books
 async function enrichBestsellersWithGoogleBooks(bestsellers) {
-  if (!GOOGLE_BOOKS_API_KEY) {
+  const apiKey = await getGoogleBooksApiKey();
+  if (!apiKey) {
     console.warn('Google Books API Key manquante, pas d\'enrichissement');
     return bestsellers;
   }
@@ -202,7 +202,7 @@ async function enrichBestsellersWithGoogleBooks(bestsellers) {
       books.map(async (book) => {
         try {
           const query = `intitle:${encodeURIComponent(book.title)}+inauthor:${encodeURIComponent(book.author)}`;
-          const url = `https://www.googleapis.com/books/v1/volumes?q=${query}&key=${GOOGLE_BOOKS_API_KEY}&maxResults=1`;
+          const url = `https://www.googleapis.com/books/v1/volumes?q=${query}&key=${apiKey}&maxResults=1`;
 
           const response = await axios.get(url, { timeout: 5000 });
 

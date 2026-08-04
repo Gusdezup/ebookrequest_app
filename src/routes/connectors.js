@@ -16,6 +16,11 @@ import { invalidateAdminEmailPrefsCache } from '../controllers/bookRequestContro
 import { getNextScanTime, restartCronInterval } from '../services/valentineCron.js';
 import { searchOnAnnasArchive, getAnnasArchiveConfig, saveAnnasArchiveConfig, downloadFromAnnas, pingAnnasArchive } from '../services/annasArchiveService.js';
 import { encrypt, decrypt } from '../services/cryptoService.js';
+import { invalidateGoogleBooksKeyCache, getGoogleBooksApiKey } from '../services/googleBooksConfig.js';
+import { invalidateAIProviderConfigCache } from '../services/aiProviderConfig.js';
+import { testAIProviderConnection } from '../services/aiProviderService.js';
+import { invalidateRSSUrlCache } from '../services/rssConfig.js';
+import { invalidateProxyConfigCache, getProxyAgent } from '../services/proxyConfig.js';
 
 async function triggerKindleIfEnabled(bookRequestLean) {
   try {
@@ -225,6 +230,264 @@ router.post('/annasarchive/download', requireAuth, requireAdmin, async (req, res
   }
 });
 
+// ── GET /api/connectors/googlebooks ───────────────────────────────────────────
+router.get('/googlebooks', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    let doc = await ConnectorSettings.findOne({ service: 'googleBooks' }).lean();
+    // Migration transparente : importe la clé du .env en base au premier accès,
+    // pour que les instances existantes voient leur config déjà pré-remplie.
+    if (!doc && process.env.GOOGLE_BOOKS_API_KEY) {
+      doc = await ConnectorSettings.findOneAndUpdate(
+        { service: 'googleBooks' },
+        { $setOnInsert: { enabled: true, apiKey: encrypt(process.env.GOOGLE_BOOKS_API_KEY) } },
+        { upsert: true, new: true, runValidators: true }
+      ).lean();
+      invalidateGoogleBooksKeyCache();
+    }
+    res.json({
+      enabled: doc?.enabled ?? false,
+      apiKey: doc?.apiKey ? '••••••••' : '',
+      _hasApiKey: !!doc?.apiKey,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/googlebooks ───────────────────────────────────────────
+router.put('/googlebooks', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { enabled, apiKey, _hasApiKey } = req.body;
+    const update = { enabled: !!enabled };
+
+    if (apiKey && apiKey !== '••••••••') {
+      update.apiKey = encrypt(apiKey);
+    }
+    if (!apiKey && !_hasApiKey) {
+      update.apiKey = '';
+    }
+
+    const doc = await ConnectorSettings.findOneAndUpdate(
+      { service: 'googleBooks' },
+      update,
+      { upsert: true, new: true, runValidators: true }
+    );
+    invalidateGoogleBooksKeyCache();
+
+    res.json({
+      enabled: doc.enabled,
+      apiKey: doc.apiKey ? '••••••••' : '',
+      _hasApiKey: !!doc.apiKey,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// ── POST /api/connectors/googlebooks/test ─────────────────────────────────────
+router.post('/googlebooks/test', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    let realKey = apiKey;
+    if (apiKey === '••••••••') {
+      const doc = await ConnectorSettings.findOne({ service: 'googleBooks' }).lean();
+      realKey = decrypt(doc?.apiKey || '') ?? doc?.apiKey ?? '';
+    }
+    if (!realKey) return res.status(400).json({ error: 'Clé API non renseignée' });
+
+    // Retry sur 503 (throttling passager côté Google) pour éviter les faux négatifs
+    // sur une clé pourtant valide.
+    let response, data, lastNetworkErr;
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=test&maxResults=1&key=${encodeURIComponent(realKey)}`, { timeout: 8000 });
+        try {
+          data = await response.json();
+        } catch {
+          data = null; // réponse non-JSON (ex: page d'erreur HTML pendant une panne Google)
+        }
+        lastNetworkErr = null;
+      } catch (fetchErr) {
+        lastNetworkErr = fetchErr;
+        response = null;
+      }
+      if ((response?.ok) || (response && response.status !== 503) || attempt === maxAttempts - 1) break;
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+    }
+
+    if (lastNetworkErr) {
+      const reason = lastNetworkErr.code ? `${lastNetworkErr.code} — ${lastNetworkErr.message}` : lastNetworkErr.message;
+      return res.status(502).json({ error: `Connexion à Google Books impossible : ${reason}` });
+    }
+    if (!response.ok) {
+      const reason = data?.error?.errors?.[0]?.reason || data?.error?.status || (data ? `HTTP ${response.status}` : `HTTP ${response.status} (réponse non-JSON)`);
+      return res.status(400).json({ error: reason });
+    }
+    res.json({ success: true, message: 'Clé Google Books valide' });
+  } catch (err) {
+    const reason = err.code ? `${err.code} — ${err.message}` : (err.message || 'Erreur inconnue');
+    res.status(500).json({ error: `Test impossible : ${reason}` });
+  }
+});
+
+// ── GET /api/connectors/aiprovider ────────────────────────────────────────────
+router.get('/aiprovider', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    let doc = await ConnectorSettings.findOne({ service: 'aiProvider' }).lean();
+    // Migration transparente : importe le provider/clé du .env en base au premier accès.
+    if (!doc && process.env.AI_PROVIDER) {
+      const provider = process.env.AI_PROVIDER;
+      const seed = { provider };
+      if (provider === 'openai' && process.env.OPENAI_API_KEY) {
+        seed.enabled = true;
+        seed.apiKey = encrypt(process.env.OPENAI_API_KEY);
+        seed.model = process.env.OPENAI_MODEL || '';
+      } else if (provider === 'claude' && process.env.ANTHROPIC_API_KEY) {
+        seed.enabled = true;
+        seed.apiKey = encrypt(process.env.ANTHROPIC_API_KEY);
+        seed.model = process.env.CLAUDE_MODEL || '';
+      } else if (provider === 'ollama' && process.env.OLLAMA_URL) {
+        seed.enabled = true;
+        seed.url = process.env.OLLAMA_URL;
+        seed.model = process.env.OLLAMA_MODEL || '';
+      }
+      if (seed.enabled) {
+        doc = await ConnectorSettings.findOneAndUpdate(
+          { service: 'aiProvider' },
+          { $setOnInsert: seed },
+          { upsert: true, new: true, runValidators: true }
+        ).lean();
+        invalidateAIProviderConfigCache();
+      }
+    }
+    res.json({
+      enabled: doc?.enabled ?? false,
+      provider: doc?.provider || 'openai',
+      model: doc?.model || '',
+      url: doc?.url || '',
+      apiKey: doc?.apiKey ? '••••••••' : '',
+      _hasApiKey: !!doc?.apiKey,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/aiprovider ────────────────────────────────────────────
+router.put('/aiprovider', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { enabled, provider, model, url, apiKey, _hasApiKey } = req.body;
+    if (!['openai', 'ollama', 'claude'].includes(provider)) {
+      return res.status(400).json({ error: 'Provider invalide' });
+    }
+
+    const update = {
+      enabled: !!enabled,
+      provider,
+      model: model?.trim() || '',
+      url: url?.trim() || '',
+    };
+
+    if (apiKey && apiKey !== '••••••••') {
+      update.apiKey = encrypt(apiKey);
+    }
+    if (!apiKey && !_hasApiKey) {
+      update.apiKey = '';
+    }
+
+    const doc = await ConnectorSettings.findOneAndUpdate(
+      { service: 'aiProvider' },
+      update,
+      { upsert: true, new: true, runValidators: true }
+    );
+    invalidateAIProviderConfigCache();
+
+    res.json({
+      enabled: doc.enabled,
+      provider: doc.provider,
+      model: doc.model || '',
+      url: doc.url || '',
+      apiKey: doc.apiKey ? '••••••••' : '',
+      _hasApiKey: !!doc.apiKey,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// ── POST /api/connectors/aiprovider/test ──────────────────────────────────────
+router.post('/aiprovider/test', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { provider, model, url, apiKey } = req.body;
+    if (!['openai', 'ollama', 'claude'].includes(provider)) {
+      return res.status(400).json({ error: 'Provider invalide' });
+    }
+
+    let realKey = apiKey;
+    if (apiKey === '••••••••') {
+      const doc = await ConnectorSettings.findOne({ service: 'aiProvider' }).lean();
+      realKey = decrypt(doc?.apiKey || '') ?? doc?.apiKey ?? '';
+    }
+
+    const cfg = {
+      provider,
+      openaiApiKey: provider === 'openai' ? realKey : '',
+      openaiModel: provider === 'openai' ? (model || 'gpt-4o-mini') : 'gpt-4o-mini',
+      anthropicApiKey: provider === 'claude' ? realKey : '',
+      claudeModel: provider === 'claude' ? (model || 'claude-opus-4-5') : 'claude-opus-4-5',
+      ollamaUrl: provider === 'ollama' ? url : '',
+      ollamaModel: provider === 'ollama' ? model : '',
+    };
+
+    const result = await testAIProviderConnection(cfg);
+    if (!result.connected) {
+      return res.status(400).json({ error: result.error || 'Connexion impossible' });
+    }
+    res.json({ success: true, message: `Connexion réussie — ${provider}`, model: result.model });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Test impossible' });
+  }
+});
+
+// ── GET /api/connectors/rss ───────────────────────────────────────────────────
+router.get('/rss', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    let doc = await ConnectorSettings.findOne({ service: 'rss' }).lean();
+    // Migration transparente : importe l'URL du .env en base au premier accès.
+    if (!doc && process.env.RSS_FEED_URL) {
+      doc = await ConnectorSettings.findOneAndUpdate(
+        { service: 'rss' },
+        { $setOnInsert: { enabled: true, url: process.env.RSS_FEED_URL } },
+        { upsert: true, new: true, runValidators: true }
+      ).lean();
+      invalidateRSSUrlCache();
+    }
+    res.json({
+      enabled: doc?.enabled ?? false,
+      url: doc?.url || '',
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/rss ────────────────────────────────────────────────────
+router.put('/rss', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { enabled, url } = req.body;
+    const doc = await ConnectorSettings.findOneAndUpdate(
+      { service: 'rss' },
+      { enabled: !!enabled, url: url?.trim() || '' },
+      { upsert: true, new: true, runValidators: true }
+    );
+    invalidateRSSUrlCache();
+    res.json({ enabled: doc.enabled, url: doc.url || '' });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
 // ── GET /api/connectors/email ─────────────────────────────────────────────────
 router.get('/email', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -267,6 +530,106 @@ router.put('/email', requireAuth, requireAdmin, async (req, res) => {
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// ── GET /api/connectors/proxy ──────────────────────────────────────────────────
+router.get('/proxy', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const doc = await ConnectorSettings.findOne({ service: 'proxy' }).lean();
+    res.json({
+      enabled: doc?.enabled ?? false,
+      url: doc?.url || '',
+      mode: doc?.provider === 'default' ? 'default' : 'fallback',
+      username: doc?.username || '',
+      password: doc?.password ? '••••••••' : '',
+      _hasPassword: !!doc?.password,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/proxy ──────────────────────────────────────────────────
+router.put('/proxy', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { enabled, url, mode, username, password, _hasPassword } = req.body;
+
+    if (enabled && !url?.trim()) {
+      return res.status(400).json({ error: 'URL du proxy requise' });
+    }
+
+    const update = {
+      enabled: !!enabled,
+      url: url?.trim() || '',
+      provider: mode === 'default' ? 'default' : 'fallback',
+      username: username?.trim() || '',
+    };
+    if (password && password !== '••••••••') {
+      update.password = encrypt(password);
+    }
+    if (!password && !_hasPassword) {
+      update.password = '';
+    }
+
+    const doc = await ConnectorSettings.findOneAndUpdate(
+      { service: 'proxy' },
+      update,
+      { upsert: true, new: true, runValidators: true }
+    );
+    invalidateProxyConfigCache();
+
+    res.json({
+      enabled: doc.enabled,
+      url: doc.url,
+      mode: doc.provider === 'default' ? 'default' : 'fallback',
+      username: doc.username,
+      password: doc.password ? '••••••••' : '',
+      _hasPassword: !!doc.password,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// ── POST /api/connectors/proxy/test ────────────────────────────────────────────
+router.post('/proxy/test', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { url, username, password } = req.body;
+    if (!url?.trim()) return res.status(400).json({ error: 'URL du proxy requise' });
+
+    let realPassword = password;
+    if (password === '••••••••') {
+      const doc = await ConnectorSettings.findOne({ service: 'proxy' }).lean();
+      realPassword = decrypt(doc?.password || '') ?? doc?.password ?? '';
+    }
+
+    let proxyUrl = url.trim();
+    if (username) {
+      const u = new URL(proxyUrl);
+      u.username = username;
+      u.password = realPassword || '';
+      proxyUrl = u.toString();
+    }
+
+    // Test réel avec la clé Google Books configurée : sans clé, Google renvoie un
+    // 429 de quota anonyme (0 requête/jour) qui n'a rien à voir avec le proxy lui-même.
+    const apiKey = await getGoogleBooksApiKey();
+    const testUrl = `https://www.googleapis.com/books/v1/volumes?q=test&maxResults=1${apiKey ? `&key=${encodeURIComponent(apiKey)}` : ''}`;
+
+    const response = await fetch(testUrl, {
+      agent: getProxyAgent(proxyUrl),
+      timeout: 10000,
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      const reason = data?.error?.errors?.[0]?.reason || data?.error?.status || `HTTP ${response.status}`;
+      return res.status(400).json({ error: `Le proxy répond mais la requête a échoué (${reason})` });
+    }
+    res.json({ success: true, message: 'Proxy fonctionnel' });
+  } catch (err) {
+    const reason = err.code ? `${err.code} — ${err.message}` : (err.message || 'Erreur inconnue');
+    res.status(400).json({ error: `Connexion via proxy impossible : ${reason}` });
   }
 });
 

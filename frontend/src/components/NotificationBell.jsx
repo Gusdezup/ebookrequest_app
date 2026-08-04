@@ -26,6 +26,7 @@ const CATEGORIES = [
   { key: 'new_request',  label: 'Demandes',    adminOnly: true  },
   { key: 'userComment',  label: 'Messages',    adminOnly: true  },
   { key: 'update',       label: 'Mise à jour', adminOnly: true  },
+  { key: 'config',       label: 'Config',      adminOnly: true  },
 ];
 
 const DASHBOARD_TYPES = new Set(['completed', 'canceled', 'adminComment', 'deleted', 'resolved']);
@@ -68,6 +69,8 @@ const NotificationBell = () => {
   const [dismissedUpdate, setDismissedUpdate] = useState(
     () => localStorage.getItem('updateNotifDismissed') || ''
   );
+  const [googleBooksMissing, setGoogleBooksMissing]   = useState(false);
+  const [dismissedGoogleBooks, setDismissedGoogleBooks] = useState(false);
   const [isOpen, setIsOpen]     = useState(false);
   const [category, setCategory] = useState('all');
   const [prevUnseen, setPrevUnseen] = useState(0);
@@ -99,6 +102,11 @@ const NotificationBell = () => {
         const res = await axiosAdmin.get('/api/admin/releases/update-check');
         if (res.data?.updateAvailable) setUpdateInfo(res.data);
       } catch {}
+
+      try {
+        const res = await axiosAdmin.get('/api/connectors/googlebooks');
+        setGoogleBooksMissing(!res.data?._hasApiKey);
+      } catch {}
     }
 
     // Dédupliquer les notifs admin déjà présentes dans l'historique
@@ -121,8 +129,11 @@ const NotificationBell = () => {
 
   useSocket('notification:new', () => fetchNotifications());
 
+  const showGoogleBooksNotif = isAdmin && googleBooksMissing && !dismissedGoogleBooks;
+
   const unseenCount = notifications.filter(n => !n.seen).length
-    + (updateInfo && dismissedUpdate !== updateInfo.latestVersion ? 1 : 0);
+    + (updateInfo && dismissedUpdate !== updateInfo.latestVersion ? 1 : 0)
+    + (showGoogleBooksNotif ? 1 : 0);
 
   useEffect(() => {
     document.title = unseenCount > 0 ? `(${unseenCount}) EbookRequest` : 'EbookRequest';
@@ -164,6 +175,7 @@ const NotificationBell = () => {
       localStorage.setItem('updateNotifDismissed', updateInfo.latestVersion);
       setDismissedUpdate(updateInfo.latestVersion);
     }
+    if (showGoogleBooksNotif) setDismissedGoogleBooks(true);
   };
 
   const handleClick = async (n) => {
@@ -188,6 +200,7 @@ const NotificationBell = () => {
     if (c.adminOnly && !isAdmin) return false;
     if (c.key === 'all')    return true;
     if (c.key === 'update') return showUpdateNotif;
+    if (c.key === 'config') return showGoogleBooksNotif;
     return notifications.some(n => n.type === c.key);
   });
 
@@ -210,7 +223,7 @@ const NotificationBell = () => {
           {/* Header */}
           <div className={styles.bellDropdownHeader}>
             <span>Notifications</span>
-            {(notifications.some(n => !n.seen) || showUpdateNotif) && (
+            {(notifications.some(n => !n.seen) || showUpdateNotif || showGoogleBooksNotif) && (
               <button className={styles.bellClearAll} onClick={markAllAsSeen}>
                 Tout marquer comme lu
               </button>
@@ -263,8 +276,35 @@ const NotificationBell = () => {
             </div>
           )}
 
+          {/* Notif clé Google Books manquante */}
+          {(category === 'all' || category === 'config') && showGoogleBooksNotif && (
+            <div
+              className={`${styles.bellItem} ${styles.bellItemUnread}`}
+              onClick={() => {
+                setDismissedGoogleBooks(true);
+                setIsOpen(false);
+                navigate('/admin?tab=connectors');
+              }}
+            >
+              <span className={styles.bellItemIcon}>⚠️</span>
+              <span className={styles.bellItemText}>
+                Aucune clé Google Books configurée — la recherche de livres risque d'être limitée
+              </span>
+              <button
+                className={styles.bellMarkRead}
+                title="Marquer comme lu"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDismissedGoogleBooks(true);
+                }}
+              >
+                <CheckIcon />
+              </button>
+            </div>
+          )}
+
           {/* Liste */}
-          {filtered.length === 0 && !showUpdateNotif ? (
+          {filtered.length === 0 && !showUpdateNotif && !showGoogleBooksNotif ? (
             <div className={styles.bellEmpty}>
               {category === 'all' ? 'Aucune notification' : 'Aucune notification dans cette catégorie'}
             </div>

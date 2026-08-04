@@ -1,7 +1,35 @@
 import express from 'express';
 import axios from 'axios';
+import { getGoogleBooksApiKey } from '../services/googleBooksConfig.js';
+import { getProxyConfig, getProxyAgent } from '../services/proxyConfig.js';
 
 const router = express.Router();
+
+// Exécute une requête axios en tenant compte du proxy configuré (mode 'default' :
+// proxy en priorité avec repli direct ; mode 'fallback' : direct en priorité avec repli proxy).
+async function axiosGetWithProxy(url, axiosOptions, label) {
+  const proxy = await getProxyConfig();
+
+  const direct = () => axios.get(url, axiosOptions);
+  const viaProxy = () => axios.get(url, {
+    ...axiosOptions,
+    httpsAgent: getProxyAgent(proxy.url),
+    proxy: false,
+  });
+
+  if (!proxy.enabled) return direct();
+
+  const secondVia = proxy.mode === 'default' ? 'connexion directe' : 'proxy';
+  const [first, second] = proxy.mode === 'default' ? [viaProxy, direct] : [direct, viaProxy];
+  try {
+    return await first();
+  } catch (err) {
+    console.warn(`[Books] ${label} échec sans/avec proxy (${err.response?.status || err.code || err.message}), tentative via ${secondVia}`);
+    const result = await second();
+    console.log(`[Books] ${label} réussi via ${secondVia}`);
+    return result;
+  }
+}
 
 // Toutes les formes d'apostrophe rencontrées : droite ('), courbes (‘ ’), backtick (`)
 const APOSTROPHE_RE = /['‘’`]/g;
@@ -44,8 +72,6 @@ function authorVariants(name) {
 
   return [...variants].map(norm).filter(Boolean);
 }
-const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY || '';
-
 // Cache en mémoire : clé = "params", valeur = { data, expiresAt }
 const searchCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -104,45 +130,59 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Nombre de tentatives + backoff pour absorber les erreurs réseau/timeout/429 transitoires
+// Nombre de tentatives + backoff pour absorber les erreurs réseau/timeout/429/503 transitoires
+// Les 503 (service indisponible / throttling IP) reçoivent plus de tentatives et un backoff
+// plus long que les autres erreurs, car ils sont souvent liés à un throttling passager côté Google.
 async function withRetry(fn, { retries = 2, label = '' } = {}) {
   let lastErr;
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  let attempt = 0;
+  while (true) {
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
       const status = err.response?.status;
       const retryable = !status || status === 429 || status === 503 || err.code === 'ECONNABORTED' || err.code === 'ECONNRESET';
-      if (!retryable || attempt === retries) break;
+      const maxRetries = status === 503 ? Math.max(retries, 4) : retries;
+      if (!retryable || attempt === maxRetries) break;
 
       const retryAfterHeader = err.response?.headers?.['retry-after'];
       const retryAfterMs = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : null;
-      const backoffMs = retryAfterMs || (500 * Math.pow(2, attempt));
+      const baseDelay = status === 503 ? 1000 : 500;
+      const backoffMs = retryAfterMs || (baseDelay * Math.pow(2, attempt));
 
-      console.warn(`[Books] ${label} échec (${status || err.code || err.message}), retry ${attempt + 1}/${retries} dans ${backoffMs}ms`);
+      console.warn(`[Books] ${label} échec (${status || err.code || err.message}), retry ${attempt + 1}/${maxRetries} dans ${backoffMs}ms`);
       await sleep(backoffMs);
+      attempt++;
     }
   }
   throw lastErr;
 }
 
 async function fetchFromGoogle(queryStr, limit, startIndex = 0, options = {}) {
+  const apiKey = await getGoogleBooksApiKey();
   return withRetry(async () => {
-    const response = await axios.get(
+    // DEBUG uniquement : GOOGLE_BOOKS_SIMULATE_503=1 force une 503 pour tester retry/fallback
+    if (process.env.GOOGLE_BOOKS_SIMULATE_503 === '1') {
+      const err = new Error('Simulated 503');
+      err.response = { status: 503, headers: {} };
+      throw err;
+    }
+    const response = await axiosGetWithProxy(
       'https://www.googleapis.com/books/v1/volumes',
       {
         params: {
           q:          queryStr,
           maxResults: limit,
           startIndex,
-          key:        GOOGLE_BOOKS_API_KEY,
+          key:        apiKey,
           printType:  'books',
           orderBy:    'relevance',
           ...(options.langRestrict && { langRestrict: options.langRestrict }),
         },
         timeout: 8000,
-      }
+      },
+      `Google Books "${queryStr}"`
     );
     return {
       items:      response.data.items      || [],
@@ -212,12 +252,20 @@ function normalizeOpenLibrarySearch(doc) {
   };
 }
 
+// Open Library recommande un User-Agent descriptif ; sans ça leur CDN peut
+// couper la connexion (socket hang up) au lieu de répondre proprement.
+const OPENLIBRARY_HEADERS = { 'User-Agent': 'EbookRequest/1.0 (self-hosted; +https://github.com/zlimteck)' };
+// Open Library répond parfois en 8-10s même en cas normal : un timeout trop court
+// empêche de détecter un vrai 503 et court-circuite le backoff dédié.
+const OPENLIBRARY_TIMEOUT = 15000;
+
 async function fetchFromOpenLibraryISBN(isbn) {
   return withRetry(async () => {
-    const res = await axios.get('https://openlibrary.org/api/books', {
+    const res = await axiosGetWithProxy('https://openlibrary.org/api/books', {
       params: { bibkeys: `ISBN:${isbn}`, format: 'json', jscmd: 'data' },
-      timeout: 8000,
-    });
+      timeout: OPENLIBRARY_TIMEOUT,
+      headers: OPENLIBRARY_HEADERS,
+    }, `OpenLibrary ISBN "${isbn}"`);
     const data = res.data[`ISBN:${isbn}`];
     return data ? normalizeOpenLibraryISBN(data, isbn) : null;
   }, { label: `OpenLibrary ISBN "${isbn}"` });
@@ -225,14 +273,15 @@ async function fetchFromOpenLibraryISBN(isbn) {
 
 async function fetchFromOpenLibrarySearch(q, limit) {
   return withRetry(async () => {
-    const res = await axios.get('https://openlibrary.org/search.json', {
+    const res = await axiosGetWithProxy('https://openlibrary.org/search.json', {
       params: {
         q,
         limit,
         fields: 'key,title,author_name,cover_i,first_publish_year,number_of_pages_median',
       },
-      timeout: 8000,
-    });
+      timeout: OPENLIBRARY_TIMEOUT,
+      headers: OPENLIBRARY_HEADERS,
+    }, `OpenLibrary search "${q}"`);
     return (res.data.docs || []).map(normalizeOpenLibrarySearch);
   }, { label: `OpenLibrary search "${q}"` });
 }
@@ -242,15 +291,16 @@ async function fetchFromOpenLibraryAuthor(author, limit = 40) {
   for (const v of variants) {
     try {
       const docs = await withRetry(async () => {
-        const res = await axios.get('https://openlibrary.org/search.json', {
+        const res = await axiosGetWithProxy('https://openlibrary.org/search.json', {
           params: {
             author: v,
             language: 'fre',
             limit,
             fields: 'key,title,author_name,cover_i,first_publish_year,number_of_pages_median,language',
           },
-          timeout: 8000,
-        });
+          timeout: OPENLIBRARY_TIMEOUT,
+          headers: OPENLIBRARY_HEADERS,
+        }, `OpenLibrary author "${v}"`);
         return res.data.docs || [];
       }, { label: `OpenLibrary author "${v}"` });
       if (docs.length > 0) return docs.map(normalizeOpenLibrarySearch);
@@ -505,6 +555,26 @@ router.get('/search', async (req, res) => {
           return res.json({ results: formatPool(pool.slice(offset, offset + limit)), totalItems: pool.length });
         }
         return res.json(stale.data);
+      }
+
+      // Pas de cache disponible : tenter Open Library en dernier recours
+      // avant d'abandonner (Google Books indisponible pour cette IP).
+      try {
+        if (authorOnlyErr) {
+          const pool = await fetchFromOpenLibraryAuthor(req.query.author.trim());
+          if (pool.length > 0) {
+            console.log(`[Books] Open Library fallback (503/429) auteur → ${pool.length} résultat(s)`);
+            return res.json({ results: formatPool(pool.slice(offset, offset + limit)), totalItems: pool.length });
+          }
+        } else if (req.query.q?.trim()) {
+          const olResults = await fetchFromOpenLibrarySearch(req.query.q.trim(), limit);
+          if (olResults.length > 0) {
+            console.log(`[Books] Open Library fallback (503/429) → ${olResults.length} résultat(s)`);
+            return res.json({ results: olResults, totalItems: olResults.length });
+          }
+        }
+      } catch (olErr) {
+        console.warn('[Books] Open Library fallback (503/429) échoué:', olErr.message);
       }
     }
 

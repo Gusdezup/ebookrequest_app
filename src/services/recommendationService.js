@@ -3,10 +3,10 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import AIRequestLog from '../models/AIRequestLog.js';
 import { generateCompletion } from './aiProviderService.js';
+import { getGoogleBooksApiKey } from './googleBooksConfig.js';
+import { getAIProviderConfig } from './aiProviderConfig.js';
 
 dotenv.config();
-
-const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY;
 
 // Génère des recommandations de livres basées sur l'historique des demandes
 export const generateRecommendations = async (bookRequests, limit = 5, userId = null, username = 'anonymous') => {
@@ -222,7 +222,8 @@ function generateRecommendationId(title, author) {
 
 // Enrichit les recommandations avec les couvertures de Google Books
 async function enrichWithGoogleBooksCovers(recommendations) {
-  if (!GOOGLE_BOOKS_API_KEY || recommendations.length === 0) {
+  const apiKey = await getGoogleBooksApiKey();
+  if (!apiKey || recommendations.length === 0) {
     return recommendations;
   }
 
@@ -230,7 +231,7 @@ async function enrichWithGoogleBooksCovers(recommendations) {
     recommendations.map(async (rec) => {
       try {
         const query = `intitle:${encodeURIComponent(rec.title)}+inauthor:${encodeURIComponent(rec.author)}`;
-        const url = `https://www.googleapis.com/books/v1/volumes?q=${query}&key=${GOOGLE_BOOKS_API_KEY}&maxResults=1`;
+        const url = `https://www.googleapis.com/books/v1/volumes?q=${query}&key=${apiKey}&maxResults=1`;
 
         const response = await axios.get(url, { timeout: 5000 });
 

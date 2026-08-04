@@ -1,7 +1,6 @@
 import axios from 'axios';
 import Bestseller from '../models/Bestseller.js';
-
-const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY;
+import { getGoogleBooksApiKey } from './googleBooksConfig.js';
 
 // Cache pour les livres tendance par catégorie
 let cachedBooksByCategory = {};
@@ -119,7 +118,8 @@ export function clearTrendingBooksCache() {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function searchGoogleBooks(title, author) {
-  if (!GOOGLE_BOOKS_API_KEY) {
+  const apiKey = await getGoogleBooksApiKey();
+  if (!apiKey) {
     return null;
   }
 
@@ -129,7 +129,7 @@ async function searchGoogleBooks(title, author) {
 
   try {
     const response = await axios.get('https://www.googleapis.com/books/v1/volumes', {
-      params: { q: query, key: GOOGLE_BOOKS_API_KEY, maxResults: 1, langRestrict: 'fr' }
+      params: { q: query, key: apiKey, maxResults: 1, langRestrict: 'fr' }
     });
 
     if (response.data.items && response.data.items.length > 0) {

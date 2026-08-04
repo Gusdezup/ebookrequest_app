@@ -8,6 +8,9 @@ const ConnectorSettingsSchema = new mongoose.Schema({
   username: { type: String, default: '' },
   password: { type: String, default: '' },
   lang:   { type: String, default: '' },
+  // Provider IA (service: 'aiProvider') — 'openai' | 'ollama' | 'claude'
+  provider: { type: String, default: '' },
+  model:    { type: String, default: '' },
   cronInterval: { type: Number, default: 6 },
   valentineFallbackToAdmin: { type: Boolean, default: false },
   // Préférences emails admin (service: 'email')

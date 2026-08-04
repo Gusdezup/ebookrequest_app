@@ -25,6 +25,7 @@
     "express-rate-limit": "^7.4.1",
     "geoip-lite": "^2.0.3",
     "helmet": "^8.2.0",
+    "https-proxy-agent": "^9.1.0",
     "jsonwebtoken": "^9.0.2",
     "jszip": "^3.10.1",
     "mongoose": "^7.8.9",
