@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import Session from '../models/Session.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/emailService.js';
+import { getEmailContext } from '../services/emailConfig.js';
 import { createSession, getClientIP } from '../utils/sessionUtils.js';
 import { COOKIE_OPTIONS, clearCookieOptions } from '../utils/cookieOptions.js';
 
@@ -18,9 +19,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 router.get('/setup-status', async (req, res) => {
   try {
     const adminExists = await User.findOne({ role: 'admin' });
+    const { cfg: emailCfg } = await getEmailContext();
     res.json({
       setupRequired: !adminExists,
-      fromEmail: process.env.EMAIL_FROM_ADDRESS || null,
+      fromEmail: emailCfg.fromAddress || null,
     });
   } catch {
     res.status(500).json({ error: 'Erreur serveur.' });

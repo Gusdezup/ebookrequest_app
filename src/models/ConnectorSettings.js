@@ -11,6 +11,12 @@ const ConnectorSettingsSchema = new mongoose.Schema({
   // Provider IA (service: 'aiProvider') — 'openai' | 'ollama' | 'claude'
   provider: { type: String, default: '' },
   model:    { type: String, default: '' },
+  // Provider Email (service: 'emailProvider') — 'smtp' | 'resend'
+  smtpHost:   { type: String, default: '' },
+  smtpPort:   { type: Number, default: 0 },
+  smtpSecure: { type: Boolean, default: false },
+  fromAddress:{ type: String, default: '' },
+  fromName:   { type: String, default: '' },
   cronInterval: { type: Number, default: 6 },
   valentineFallbackToAdmin: { type: Boolean, default: false },
   // Préférences emails admin (service: 'email')

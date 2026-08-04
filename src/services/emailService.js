@@ -1,10 +1,9 @@
-import nodemailer from 'nodemailer';
-import { Resend } from 'resend';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import dotenv from 'dotenv';
 import EmailLog from '../models/EmailLog.js';
+import { getEmailContext } from './emailConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,57 +13,18 @@ if (fs.existsSync(envPath)) {
   dotenv.config({ path: envPath });
 }
 
-// ─── Provider selection ───────────────────────────────────────────────────────
-const EMAIL_PROVIDER = (process.env.EMAIL_PROVIDER || 'smtp').toLowerCase();
-const USE_RESEND = EMAIL_PROVIDER === 'resend';
-
-// ─── SMTP setup ───────────────────────────────────────────────────────────────
-let smtpTransporter = null;
-
-if (!USE_RESEND) {
-  const requiredSmtp = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM_ADDRESS', 'EMAIL_FROM_NAME', 'FRONTEND_URL'];
-  const missingSmtp = requiredSmtp.filter(v => !process.env[v]);
-  if (missingSmtp.length > 0) {
-    console.error('Variables SMTP manquantes:', missingSmtp);
-  }
-
-  smtpTransporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT, 10) || 465,
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
-    tls: { rejectUnauthorized: false },
-  });
-
-  smtpTransporter.verify(err => {
-    if (err) console.error('Erreur connexion SMTP:', err.message);
-    else     console.log('SMTP prêt');
-  });
-}
-
-// ─── Resend setup ─────────────────────────────────────────────────────────────
-let resendClient = null;
-
-if (USE_RESEND) {
-  if (!process.env.RESEND_API_KEY) {
-    console.error('RESEND_API_KEY manquante — les emails ne seront pas envoyés.');
-  } else {
-    resendClient = new Resend(process.env.RESEND_API_KEY);
-    console.log('Resend initialisé');
-  }
-}
-
-const FROM = `"${process.env.EMAIL_FROM_NAME || 'EbookRequest'}" <${process.env.EMAIL_FROM_ADDRESS || 'noreply@example.com'}>`;
-
 // ─── Core send function ───────────────────────────────────────────────────────
 
 /**
- * Envoie un email via SMTP ou Resend et enregistre dans EmailLog.
+ * Envoie un email via SMTP ou Resend (config DB si activée, sinon .env) et
+ * enregistre dans EmailLog.
  * @returns {Promise<EmailLog>} le document de log créé
  */
 async function sendEmail({ to, subject, html, type }) {
+  const { cfg, transporter, resendClient, from } = await getEmailContext();
+
   const log = await EmailLog.create({
-    provider: USE_RESEND ? 'resend' : 'smtp',
+    provider: cfg.provider,
     to,
     subject,
     type,
@@ -73,9 +33,9 @@ async function sendEmail({ to, subject, html, type }) {
   });
 
   try {
-    if (USE_RESEND && resendClient) {
+    if (cfg.provider === 'resend' && resendClient) {
       const { data, error } = await resendClient.emails.send({
-        from: FROM,
+        from,
         to,
         subject,
         html,
@@ -87,8 +47,8 @@ async function sendEmail({ to, subject, html, type }) {
       await EmailLog.updateOne({ _id: log._id }, { $set: { emailId: data.id } });
       log.emailId = data.id;
 
-    } else if (smtpTransporter) {
-      await smtpTransporter.sendMail({ from: FROM, to, subject, html });
+    } else if (transporter) {
+      await transporter.sendMail({ from, to, subject, html });
     } else {
       throw new Error('Aucun provider email configuré.');
     }
@@ -517,11 +477,12 @@ export const sendNewLoginAlertEmail = async (user, { ip, location, browser, os, 
 export const sendKindleDelivery = async (kindleEmail, filePath, filename) => {
   const bookTitle = path.basename(filename, path.extname(filename));
   const subject = bookTitle;
+  const { cfg, transporter, resendClient, from } = await getEmailContext();
 
-  if (USE_RESEND && resendClient) {
+  if (cfg.provider === 'resend' && resendClient) {
     const fileBuffer = fs.readFileSync(filePath);
     const { data, error } = await resendClient.emails.send({
-      from: FROM,
+      from,
       to: kindleEmail,
       subject,
       text: `Votre livre "${bookTitle}" est joint à cet email.`,
@@ -531,9 +492,9 @@ export const sendKindleDelivery = async (kindleEmail, filePath, filename) => {
     return data;
   }
 
-  if (smtpTransporter) {
-    await smtpTransporter.sendMail({
-      from: FROM,
+  if (transporter) {
+    await transporter.sendMail({
+      from,
       to: kindleEmail,
       subject,
       text: `Votre livre "${bookTitle}" est joint à cet email.`,

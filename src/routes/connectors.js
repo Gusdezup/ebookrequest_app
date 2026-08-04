@@ -21,6 +21,7 @@ import { invalidateAIProviderConfigCache } from '../services/aiProviderConfig.js
 import { testAIProviderConnection } from '../services/aiProviderService.js';
 import { invalidateRSSUrlCache } from '../services/rssConfig.js';
 import { invalidateProxyConfigCache, getProxyAgent } from '../services/proxyConfig.js';
+import { invalidateEmailConfigCache } from '../services/emailConfig.js';
 
 async function triggerKindleIfEnabled(bookRequestLean) {
   try {
@@ -630,6 +631,150 @@ router.post('/proxy/test', requireAuth, requireAdmin, async (req, res) => {
   } catch (err) {
     const reason = err.code ? `${err.code} — ${err.message}` : (err.message || 'Erreur inconnue');
     res.status(400).json({ error: `Connexion via proxy impossible : ${reason}` });
+  }
+});
+
+// ── GET /api/connectors/emailprovider ──────────────────────────────────────────
+router.get('/emailprovider', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    let doc = await ConnectorSettings.findOne({ service: 'emailProvider' }).lean();
+    // Migration transparente : importe la config email du .env en base au premier accès.
+    if (!doc && process.env.EMAIL_PROVIDER) {
+      const provider = (process.env.EMAIL_PROVIDER || 'smtp').toLowerCase();
+      const seed = { provider };
+      if (provider === 'resend' && process.env.RESEND_API_KEY) {
+        seed.enabled = true;
+        seed.apiKey = encrypt(process.env.RESEND_API_KEY);
+      } else if (provider === 'smtp' && process.env.SMTP_HOST) {
+        seed.enabled = true;
+        seed.smtpHost = process.env.SMTP_HOST;
+        seed.smtpPort = parseInt(process.env.SMTP_PORT, 10) || 465;
+        seed.smtpSecure = process.env.SMTP_SECURE === 'true';
+        seed.username = process.env.SMTP_USER || '';
+        if (process.env.SMTP_PASSWORD) seed.apiKey = encrypt(process.env.SMTP_PASSWORD);
+      }
+      seed.fromAddress = process.env.EMAIL_FROM_ADDRESS || '';
+      seed.fromName = process.env.EMAIL_FROM_NAME || '';
+      if (seed.enabled) {
+        doc = await ConnectorSettings.findOneAndUpdate(
+          { service: 'emailProvider' },
+          { $setOnInsert: seed },
+          { upsert: true, new: true, runValidators: true }
+        ).lean();
+        invalidateEmailConfigCache();
+      }
+    }
+    res.json({
+      enabled: doc?.enabled ?? false,
+      provider: doc?.provider || 'smtp',
+      smtpHost: doc?.smtpHost || '',
+      smtpPort: doc?.smtpPort || 465,
+      smtpSecure: doc?.smtpSecure ?? false,
+      username: doc?.username || '',
+      fromAddress: doc?.fromAddress || '',
+      fromName: doc?.fromName || '',
+      apiKey: doc?.apiKey ? '••••••••' : '',
+      _hasApiKey: !!doc?.apiKey,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/emailprovider ──────────────────────────────────────────
+router.put('/emailprovider', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { enabled, provider, smtpHost, smtpPort, smtpSecure, username, fromAddress, fromName, apiKey, _hasApiKey } = req.body;
+    if (!['smtp', 'resend'].includes(provider)) {
+      return res.status(400).json({ error: 'Provider invalide' });
+    }
+
+    const update = {
+      enabled: !!enabled,
+      provider,
+      smtpHost: smtpHost?.trim() || '',
+      smtpPort: Number(smtpPort) || 465,
+      smtpSecure: !!smtpSecure,
+      username: username?.trim() || '',
+      fromAddress: fromAddress?.trim() || '',
+      fromName: fromName?.trim() || '',
+    };
+    if (apiKey && apiKey !== '••••••••') {
+      update.apiKey = encrypt(apiKey);
+    }
+    if (!apiKey && !_hasApiKey) {
+      update.apiKey = '';
+    }
+
+    const doc = await ConnectorSettings.findOneAndUpdate(
+      { service: 'emailProvider' },
+      update,
+      { upsert: true, new: true, runValidators: true }
+    );
+    invalidateEmailConfigCache();
+
+    res.json({
+      enabled: doc.enabled,
+      provider: doc.provider,
+      smtpHost: doc.smtpHost,
+      smtpPort: doc.smtpPort,
+      smtpSecure: doc.smtpSecure,
+      username: doc.username,
+      fromAddress: doc.fromAddress,
+      fromName: doc.fromName,
+      apiKey: doc.apiKey ? '••••••••' : '',
+      _hasApiKey: !!doc.apiKey,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// ── POST /api/connectors/emailprovider/test ────────────────────────────────────
+router.post('/emailprovider/test', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { to, provider, smtpHost, smtpPort, smtpSecure, username, fromAddress, fromName, apiKey } = req.body;
+    if (!to?.trim()) return res.status(400).json({ error: 'Adresse email de destination requise' });
+
+    let realKey = apiKey;
+    if (apiKey === '••••••••') {
+      const doc = await ConnectorSettings.findOne({ service: 'emailProvider' }).lean();
+      realKey = decrypt(doc?.apiKey || '') ?? doc?.apiKey ?? '';
+    }
+
+    const from = `"${fromName || 'EbookRequest'}" <${fromAddress || 'noreply@example.com'}>`;
+
+    if (provider === 'resend') {
+      if (!realKey) return res.status(400).json({ error: 'Clé API Resend requise' });
+      const { Resend } = await import('resend');
+      const client = new Resend(realKey);
+      const { error } = await client.emails.send({
+        from,
+        to: to.trim(),
+        subject: 'Test EbookRequest',
+        text: 'Ceci est un email de test envoyé depuis le panel admin EbookRequest.',
+      });
+      if (error) return res.status(400).json({ error: error.message || 'Erreur Resend' });
+    } else {
+      const { default: nodemailer } = await import('nodemailer');
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: Number(smtpPort) || 465,
+        secure: !!smtpSecure,
+        auth: { user: username, pass: realKey },
+        tls: { rejectUnauthorized: false },
+      });
+      await transporter.sendMail({
+        from,
+        to: to.trim(),
+        subject: 'Test EbookRequest',
+        text: 'Ceci est un email de test envoyé depuis le panel admin EbookRequest.',
+      });
+    }
+
+    res.json({ success: true, message: 'Email de test envoyé' });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Envoi impossible' });
   }
 });
 

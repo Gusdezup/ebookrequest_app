@@ -2,17 +2,26 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axiosAdmin from '../../axiosAdmin';
 import styles from './ServicesHealth.module.css';
 import { useSocketStatus } from '../../hooks/useSocket';
+import { OpenAIIcon, ClaudeIcon, OllamaIcon, GoogleIcon } from './brandIcons';
+
+const AI_PROVIDER_ICONS = { openai: OpenAIIcon, claude: ClaudeIcon, ollama: OllamaIcon };
 
 const SERVICE_DEFS = [
   {
     key: 'aiProvider',
-    label: (s) => s.provider ? ({ openai: 'OpenAI', ollama: 'Ollama' }[s.provider] || s.provider) : 'IA',
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/>
-        <path d="M15 2v2M9 2v2M15 20v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/>
-      </svg>
-    ),
+    label: (s) => s.provider ? ({ openai: 'OpenAI', claude: 'Claude', ollama: 'Ollama' }[s.provider] || s.provider) : 'IA',
+    icon: (s) => {
+      const BrandIcon = AI_PROVIDER_ICONS[s.provider];
+      if (!BrandIcon) {
+        return (
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/>
+            <path d="M15 2v2M9 2v2M15 20v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/>
+          </svg>
+        );
+      }
+      return <BrandIcon size={20} />;
+    },
     isEnabled: () => true,
     isConnected: (s) => s.connected,
     details: (s) => {
@@ -68,12 +77,7 @@ const SERVICE_DEFS = [
   {
     key: 'googleBooks',
     label: () => 'Google Books',
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-      </svg>
-    ),
+    icon: <GoogleIcon size={20} />,
     isEnabled: (s) => s.enabled,
     isConnected: (s) => s.connected,
     details: (s) => s.connected && s.totalItems != null ? [`Résultats trouvés (test) : ${s.totalItems}`] : [],
@@ -271,11 +275,12 @@ const ServicesHealth = () => {
           const err = def.error(s);
           const warning = def.warning?.(s);
           const label = typeof def.label === 'function' ? def.label(s) : def.label;
+          const icon = typeof def.icon === 'function' ? def.icon(s) : def.icon;
           const dotClass = !enabled ? styles.dotDisabled : isWarning ? styles.dotWarning : connected ? styles.dotOk : styles.dotError;
 
           return (
             <div key={def.key} className={`${styles.card} ${!enabled ? styles.cardDisabled : ''}`}>
-              <div className={styles.cardIcon}>{def.icon}</div>
+              <div className={styles.cardIcon}>{icon}</div>
               <div className={styles.cardBody}>
                 <div className={styles.cardTop}>
                   <span className={styles.cardName}>{label}</span>
