@@ -86,11 +86,13 @@ export const generateRecommendations = async (bookRequests, limit = 5, userId = 
     // Logger la requête échouée
     if (userId) {
       try {
-        // Try to determine provider from environment, fallback to 'other'
-        const provider = process.env.AI_PROVIDER || 'other';
+        const cfg = await getAIProviderConfig();
+        const provider = cfg.provider || 'other';
         const model = provider === 'openai'
-          ? (process.env.OPENAI_MODEL || 'gpt-4o-mini')
-          : (process.env.OLLAMA_MODEL || 'unknown');
+          ? cfg.openaiModel
+          : provider === 'claude'
+            ? cfg.claudeModel
+            : (cfg.ollamaModel || 'unknown');
 
         await AIRequestLog.create({
           userId,
