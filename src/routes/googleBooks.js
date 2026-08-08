@@ -1,6 +1,7 @@
 import express from 'express';
 import axios from 'axios';
-import { getGoogleBooksApiKey } from '../services/googleBooksConfig.js';
+import { getGoogleBooksApiKey, isGoogleBooksSearchEnabled } from '../services/googleBooksConfig.js';
+import { getHardcoverApiKey, takeHardcoverQuota } from '../services/hardcoverConfig.js';
 import { getProxyConfig, getProxyAgent } from '../services/proxyConfig.js';
 
 const router = express.Router();
@@ -12,6 +13,31 @@ async function axiosGetWithProxy(url, axiosOptions, label) {
 
   const direct = () => axios.get(url, axiosOptions);
   const viaProxy = () => axios.get(url, {
+    ...axiosOptions,
+    httpsAgent: getProxyAgent(proxy.url),
+    proxy: false,
+  });
+
+  if (!proxy.enabled) return direct();
+
+  const secondVia = proxy.mode === 'default' ? 'connexion directe' : 'proxy';
+  const [first, second] = proxy.mode === 'default' ? [viaProxy, direct] : [direct, viaProxy];
+  try {
+    return await first();
+  } catch (err) {
+    console.warn(`[Books] ${label} échec sans/avec proxy (${err.response?.status || err.code || err.message}), tentative via ${secondVia}`);
+    const result = await second();
+    console.log(`[Books] ${label} réussi via ${secondVia}`);
+    return result;
+  }
+}
+
+// Même logique que axiosGetWithProxy, pour les appels POST (API GraphQL Hardcover).
+async function axiosPostWithProxy(url, body, axiosOptions, label) {
+  const proxy = await getProxyConfig();
+
+  const direct = () => axios.post(url, body, axiosOptions);
+  const viaProxy = () => axios.post(url, body, {
     ...axiosOptions,
     httpsAgent: getProxyAgent(proxy.url),
     proxy: false,
@@ -204,6 +230,67 @@ async function firstNonEmptyGoogleResult(queries, limit, startIndex, options) {
     if (s.status === 'fulfilled' && s.value.items.length > 0) return s.value;
   }
   return { items: [], totalItems: 0 };
+}
+
+// ─── Hardcover fallback (entre Google Books et Open Library) ─────────────────
+
+const HARDCOVER_TIMEOUT = 8000;
+
+function normalizeHardcoverDocument(doc) {
+  const cover = doc.image?.url || null;
+  return {
+    id: `hc-${doc.id}`,
+    volumeInfo: {
+      title:         doc.title || '',
+      authors:       (doc.author_names || []).filter(Boolean),
+      publishedDate: doc.release_year ? String(doc.release_year) : '',
+      description:   doc.description || 'Aucune description disponible',
+      pageCount:     doc.pages || 0,
+      categories:    [],
+      imageLinks:    { thumbnail: cover, smallThumbnail: cover },
+      language:      'fr',
+      previewLink:   doc.slug ? `https://hardcover.app/books/${doc.slug}` : '',
+      infoLink:      doc.slug ? `https://hardcover.app/books/${doc.slug}` : '',
+      seriesInfo:    null,
+    },
+  };
+}
+
+// Recherche via l'API GraphQL Hardcover (search plein texte, backée par Typesense côté Hardcover).
+async function fetchFromHardcoverSearch(q, limit) {
+  const apiKey = await getHardcoverApiKey();
+  if (!apiKey) return [];
+  if (!takeHardcoverQuota()) {
+    console.warn('[Books] Hardcover quota (60 req/min) atteint, appel ignoré');
+    return [];
+  }
+
+  return withRetry(async () => {
+    const res = await axiosPostWithProxy(
+      'https://api.hardcover.app/v1/graphql',
+      {
+        query: `query Search($query: String!, $perPage: Int!) {
+          search(query: $query, query_type: "Book", per_page: $perPage, page: 1) {
+            results
+          }
+        }`,
+        variables: { query: q, perPage: limit },
+      },
+      {
+        timeout: HARDCOVER_TIMEOUT,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`,
+        },
+      },
+      `Hardcover search "${q}"`
+    );
+    if (res.data?.errors) {
+      throw new Error(res.data.errors[0]?.message || 'Erreur Hardcover');
+    }
+    const hits = res.data?.data?.search?.results?.hits || [];
+    return hits.map(h => h.document).filter(Boolean).map(normalizeHardcoverDocument);
+  }, { label: `Hardcover search "${q}"` });
 }
 
 // ─── Open Library fallback ────────────────────────────────────────────────────
@@ -466,13 +553,24 @@ router.get('/search', async (req, res) => {
     let rawItems   = [];
     let totalItems = 0;
 
+    const googleEnabled = await isGoogleBooksSearchEnabled();
+
     if (authorOnly) {
-      const result = await firstNonEmptyGoogleResult(queries, 40, 0, { langRestrict: 'fr' });
-      let pool = result.items;
-      pool = pool.filter(item =>
-        !item.volumeInfo?.language || item.volumeInfo.language === 'fr'
-      );
-      // Fallback Open Library si Google Books ne trouve rien en français
+      let pool = [];
+      if (googleEnabled) {
+        const result = await firstNonEmptyGoogleResult(queries, 40, 0, { langRestrict: 'fr' });
+        pool = result.items.filter(item =>
+          !item.volumeInfo?.language || item.volumeInfo.language === 'fr'
+        );
+      }
+      // Fallback Hardcover puis Open Library si Google Books est désactivé/ne trouve rien en français
+      if (pool.length === 0) {
+        try {
+          pool = await fetchFromHardcoverSearch(author.trim(), 40);
+        } catch (hcErr) {
+          console.warn('[Books] Hardcover fallback auteur échoué:', hcErr.message);
+        }
+      }
       if (pool.length === 0) {
         pool = await fetchFromOpenLibraryAuthor(author.trim());
       }
@@ -485,7 +583,7 @@ router.get('/search', async (req, res) => {
       searchCache.set(cacheKey, { data: { pool }, expiresAt: Date.now() + CACHE_TTL_MS });
       rawItems   = pool.slice(offset, offset + limit);
       totalItems = pool.length;
-    } else {
+    } else if (googleEnabled) {
       const result = await firstNonEmptyGoogleResult(queries, limit, offset);
       rawItems   = result.items;
       totalItems = result.totalItems;
@@ -497,12 +595,24 @@ router.get('/search', async (req, res) => {
       }
     }
 
-    // ── Fallback Open Library si Google Books n'a rien trouvé (page 1 seulement) ─
+    // ── Fallback Hardcover puis Open Library si Google Books n'a rien trouvé (page 1) ─
     if (rawItems.length === 0 && offset === 0 && !authorOnly) {
-      try {
-        const isbnClean = (q || '').trim().replace(/[-\s]/g, '');
-        const isISBN = /^\d{10}$/.test(isbnClean) || /^\d{13}$/.test(isbnClean);
+      const isbnClean = (q || '').trim().replace(/[-\s]/g, '');
+      const isISBN = /^\d{10}$/.test(isbnClean) || /^\d{13}$/.test(isbnClean);
 
+      if (q?.trim()) {
+        try {
+          const hcResults = await fetchFromHardcoverSearch(q.trim(), limit);
+          if (hcResults.length > 0) {
+            console.log(`[Books] Hardcover fallback → ${hcResults.length} résultat(s)`);
+            return res.json({ results: hcResults, totalItems: hcResults.length });
+          }
+        } catch (hcErr) {
+          console.warn('[Books] Hardcover fallback échoué:', hcErr.message);
+        }
+      }
+
+      try {
         if (isISBN) {
           const olResult = await fetchFromOpenLibraryISBN(isbnClean);
           if (olResult) {
@@ -557,8 +667,26 @@ router.get('/search', async (req, res) => {
         return res.json(stale.data);
       }
 
-      // Pas de cache disponible : tenter Open Library en dernier recours
+      // Pas de cache disponible : tenter Hardcover puis Open Library en dernier recours
       // avant d'abandonner (Google Books indisponible pour cette IP).
+      try {
+        if (authorOnlyErr) {
+          const hcPool = await fetchFromHardcoverSearch(req.query.author.trim(), 40);
+          if (hcPool.length > 0) {
+            console.log(`[Books] Hardcover fallback (503/429) auteur → ${hcPool.length} résultat(s)`);
+            return res.json({ results: hcPool.slice(offset, offset + limit), totalItems: hcPool.length });
+          }
+        } else if (req.query.q?.trim()) {
+          const hcResults = await fetchFromHardcoverSearch(req.query.q.trim(), limit);
+          if (hcResults.length > 0) {
+            console.log(`[Books] Hardcover fallback (503/429) → ${hcResults.length} résultat(s)`);
+            return res.json({ results: hcResults, totalItems: hcResults.length });
+          }
+        }
+      } catch (hcErr) {
+        console.warn('[Books] Hardcover fallback (503/429) échoué:', hcErr.message);
+      }
+
       try {
         if (authorOnlyErr) {
           const pool = await fetchFromOpenLibraryAuthor(req.query.author.trim());

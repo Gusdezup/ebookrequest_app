@@ -23,7 +23,7 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
-Icon?
+Icon[\r]
 
 # IDE
 .vscode/

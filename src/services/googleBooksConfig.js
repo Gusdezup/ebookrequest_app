@@ -24,3 +24,18 @@ export async function getGoogleBooksApiKey() {
   cache = { value: key, expiresAt: Date.now() + CACHE_TTL_MS };
   return key;
 }
+
+// Le toggle "enabled" sert à la fois à activer une clé DB personnalisée et à couper
+// entièrement Google Books en tant que source de recherche. Par défaut (aucun document
+// en base, installations existantes basées sur la seule variable d'env) le service reste
+// actif pour ne rien casser ; il ne devient inactif que si un admin décoche explicitement
+// le toggle dans Réglages.
+export async function isGoogleBooksSearchEnabled() {
+  try {
+    const doc = await ConnectorSettings.findOne({ service: 'googleBooks' }).lean();
+    if (!doc) return true;
+    return doc.enabled !== false;
+  } catch {
+    return true;
+  }
+}

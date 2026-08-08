@@ -17,6 +17,7 @@ import { getNextScanTime, restartCronInterval } from '../services/valentineCron.
 import { searchOnAnnasArchive, getAnnasArchiveConfig, saveAnnasArchiveConfig, downloadFromAnnas, pingAnnasArchive } from '../services/annasArchiveService.js';
 import { encrypt, decrypt } from '../services/cryptoService.js';
 import { invalidateGoogleBooksKeyCache, getGoogleBooksApiKey } from '../services/googleBooksConfig.js';
+import { invalidateHardcoverKeyCache } from '../services/hardcoverConfig.js';
 import { invalidateAIProviderConfigCache } from '../services/aiProviderConfig.js';
 import { testAIProviderConnection } from '../services/aiProviderService.js';
 import { invalidateRSSUrlCache } from '../services/rssConfig.js';
@@ -329,6 +330,90 @@ router.post('/googlebooks/test', requireAuth, requireAdmin, async (req, res) => 
   } catch (err) {
     const reason = err.code ? `${err.code} — ${err.message}` : (err.message || 'Erreur inconnue');
     res.status(500).json({ error: `Test impossible : ${reason}` });
+  }
+});
+
+// ── GET /api/connectors/hardcover ─────────────────────────────────────────────
+router.get('/hardcover', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const doc = await ConnectorSettings.findOne({ service: 'hardcover' }).lean();
+    res.json({
+      enabled: doc?.enabled ?? false,
+      apiKey: doc?.apiKey ? '••••••••' : '',
+      _hasApiKey: !!doc?.apiKey,
+      _keyUpdatedAt: doc?.apiKey ? doc?.updatedAt : null,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/hardcover ─────────────────────────────────────────────
+router.put('/hardcover', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { enabled, apiKey, _hasApiKey } = req.body;
+    const update = { enabled: !!enabled };
+
+    if (apiKey && apiKey !== '••••••••') {
+      update.apiKey = encrypt(apiKey);
+    }
+    if (!apiKey && !_hasApiKey) {
+      update.apiKey = '';
+    }
+
+    const doc = await ConnectorSettings.findOneAndUpdate(
+      { service: 'hardcover' },
+      update,
+      { upsert: true, new: true, runValidators: true }
+    );
+    invalidateHardcoverKeyCache();
+
+    res.json({
+      enabled: doc.enabled,
+      apiKey: doc.apiKey ? '••••••••' : '',
+      _hasApiKey: !!doc.apiKey,
+      _keyUpdatedAt: doc.apiKey ? doc.updatedAt : null,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// ── POST /api/connectors/hardcover/test ───────────────────────────────────────
+router.post('/hardcover/test', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    let realKey = apiKey;
+    if (apiKey === '••••••••') {
+      const doc = await ConnectorSettings.findOne({ service: 'hardcover' }).lean();
+      realKey = decrypt(doc?.apiKey || '') ?? doc?.apiKey ?? '';
+    }
+    if (!realKey) return res.status(400).json({ error: 'Clé API non renseignée' });
+
+    let response, data;
+    try {
+      response = await fetch('https://api.hardcover.app/v1/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: realKey.startsWith('Bearer ') ? realKey : `Bearer ${realKey}`,
+        },
+        body: JSON.stringify({ query: '{ me { id } }' }),
+        timeout: 8000,
+      });
+      data = await response.json();
+    } catch (fetchErr) {
+      const reason = fetchErr.code ? `${fetchErr.code} — ${fetchErr.message}` : fetchErr.message;
+      return res.status(502).json({ error: `Connexion à Hardcover impossible : ${reason}` });
+    }
+
+    if (!response.ok || data?.errors) {
+      const reason = data?.errors?.[0]?.message || `HTTP ${response.status}`;
+      return res.status(400).json({ error: reason });
+    }
+    res.json({ success: true, message: 'Clé Hardcover valide' });
+  } catch (err) {
+    res.status(500).json({ error: `Test impossible : ${err.message || 'Erreur inconnue'}` });
   }
 });
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axiosAdmin from '../../axiosAdmin';
 import styles from './ConnectorsPanel.module.css';
 import { OpenAIIcon, ClaudeIcon, OllamaIcon, GoogleIcon } from './brandIcons';
+import hardcoverLogo from '../../assets/icons/hardcover.png';
 
 const AI_PROVIDER_ICONS = { openai: OpenAIIcon, claude: ClaudeIcon, ollama: OllamaIcon };
 
@@ -72,6 +73,18 @@ function GoogleBooksCard() {
     }
   };
 
+  const handleToggle = async (e) => {
+    const enabled = e.target.checked;
+    setConfig(c => ({ ...c, enabled }));
+    try {
+      const res = await axiosAdmin.put('/api/connectors/googlebooks', { ...config, enabled });
+      setConfig(c => ({ ...c, enabled: res.data.enabled, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey }));
+    } catch (err) {
+      setConfig(c => ({ ...c, enabled: !enabled }));
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    }
+  };
+
   const handleTest = async () => {
     if (!config.apiKey && !config._hasApiKey) {
       showAlertMsg('error', 'Renseignez une clé API avant de tester.');
@@ -104,14 +117,14 @@ function GoogleBooksCard() {
           </div>
           <div>
             <p className={styles.cardName}>Google Books</p>
-            <p className={styles.cardDesc}>Clé API utilisée pour la recherche de livres, les couvertures et l'enrichissement des recommandations/bestsellers.</p>
+            <p className={styles.cardDesc}>Source principale pour la recherche de livres, les couvertures et l'enrichissement des recommandations/bestsellers. Désactiver bascule directement sur Hardcover puis Open Library.</p>
           </div>
         </div>
         <label className={styles.switch}>
           <input
             type="checkbox"
             checked={config.enabled}
-            onChange={e => setConfig(c => ({ ...c, enabled: e.target.checked }))}
+            onChange={handleToggle}
           />
           <span className={styles.slider} />
         </label>
@@ -134,6 +147,172 @@ function GoogleBooksCard() {
               className={styles.fieldInput}
               type={showKey ? 'text' : 'password'}
               placeholder={config._hasApiKey ? '••••••••' : 'Votre clé API Google Books'}
+              value={config.apiKey}
+              autoComplete="off"
+              onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))}
+            />
+            <button type="button" className={styles.eyeBtn} onClick={() => setShowKey(v => !v)} title={showKey ? 'Masquer' : 'Afficher'}>
+              <EyeIcon open={showKey} />
+            </button>
+          </div>
+          {config._hasApiKey && !config.apiKey && (
+            <p className={styles.fieldHint}>Clé déjà enregistrée — laisser vide pour conserver.</p>
+          )}
+        </div>
+
+        {alert && (
+          <div className={`${styles.alert} ${alert.type === 'success' ? styles.alertSuccess : styles.alertError}`}>
+            {alert.type === 'success' ? <CheckIcon /> : <AlertIcon />}
+            {alert.message}
+          </div>
+        )}
+
+        <div className={styles.cardActions}>
+          <button type="button" className={styles.btnTest} onClick={handleTest} disabled={testing || saving}>
+            {testing ? (
+              <><span className={styles.spinnerSmall} />Test en cours…</>
+            ) : (
+              <>
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                Tester la clé
+              </>
+            )}
+          </button>
+          <button type="submit" className={styles.btnPrimary} disabled={saving || testing}>
+            {saving ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+const HardcoverIcon = ({ size = 24 }) => (
+  <img
+    src={hardcoverLogo}
+    alt="Hardcover"
+    style={{ width: size, height: size, objectFit: 'contain' }}
+  />
+);
+
+function HardcoverCard() {
+  const [config, setConfig] = useState({ enabled: false, apiKey: '', _hasApiKey: false, _keyUpdatedAt: null });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const [alert, setAlert] = useState(null);
+
+  useEffect(() => {
+    axiosAdmin.get('/api/connectors/hardcover')
+      .then(res => {
+        setConfig({
+          enabled: res.data.enabled ?? false,
+          apiKey: res.data.apiKey || '',
+          _hasApiKey: res.data._hasApiKey ?? false,
+          _keyUpdatedAt: res.data._keyUpdatedAt || null,
+        });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const showAlertMsg = (type, message) => {
+    setAlert({ type, message });
+    setTimeout(() => setAlert(null), 5000);
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setAlert(null);
+    try {
+      const res = await axiosAdmin.put('/api/connectors/hardcover', config);
+      setConfig(c => ({ ...c, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey, _keyUpdatedAt: res.data._keyUpdatedAt || null }));
+      showAlertMsg('success', 'Configuration enregistrée.');
+    } catch (err) {
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggle = async (e) => {
+    const enabled = e.target.checked;
+    setConfig(c => ({ ...c, enabled }));
+    try {
+      const res = await axiosAdmin.put('/api/connectors/hardcover', { ...config, enabled });
+      setConfig(c => ({ ...c, enabled: res.data.enabled, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey, _keyUpdatedAt: res.data._keyUpdatedAt || null }));
+    } catch (err) {
+      setConfig(c => ({ ...c, enabled: !enabled }));
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    }
+  };
+
+  const handleTest = async () => {
+    if (!config.apiKey && !config._hasApiKey) {
+      showAlertMsg('error', 'Renseignez une clé API avant de tester.');
+      return;
+    }
+    setTesting(true);
+    setAlert(null);
+    try {
+      const res = await axiosAdmin.post('/api/connectors/hardcover/test', { apiKey: config.apiKey });
+      showAlertMsg('success', res.data.message || 'Clé valide !');
+    } catch (err) {
+      showAlertMsg('error', err.response?.data?.error || 'Clé invalide.');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) return (
+    <div className={styles.card}>
+      <div className={styles.cardLoading}><div className={styles.spinner} /></div>
+    </div>
+  );
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <div className={styles.cardBrand}>
+          <div className={styles.cardLogoWrap}>
+            <HardcoverIcon size={24} />
+          </div>
+          <div>
+            <p className={styles.cardName}>Hardcover</p>
+            <p className={styles.cardDesc}>Clé API utilisée en repli de Google Books — quand celui-ci est désactivé ou ne trouve aucun résultat (avant Open Library).</p>
+          </div>
+        </div>
+        <label className={styles.switch}>
+          <input
+            type="checkbox"
+            checked={config.enabled}
+            onChange={handleToggle}
+          />
+          <span className={styles.slider} />
+        </label>
+      </div>
+
+      {config._hasApiKey && config._keyUpdatedAt && (
+        <div className={styles.nextScan}>
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          Les clés Hardcover expirent après 1 an et sont réinitialisées chaque 1er janvier — pensez à la renouveler sur hardcover.app (dernier enregistrement : {new Date(config._keyUpdatedAt).toLocaleDateString('fr-FR')}).
+        </div>
+      )}
+
+      <form className={styles.form} onSubmit={handleSave}>
+        <div className={styles.fieldRow}>
+          <label className={styles.fieldLabel}>Clé API</label>
+          <div className={styles.fieldInputWrap}>
+            <input
+              className={styles.fieldInput}
+              type={showKey ? 'text' : 'password'}
+              placeholder={config._hasApiKey ? '••••••••' : 'Votre clé API Hardcover'}
               value={config.apiKey}
               autoComplete="off"
               onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))}
@@ -222,6 +401,18 @@ function ProxyCard() {
     }
   };
 
+  const handleToggle = async (e) => {
+    const enabled = e.target.checked;
+    setConfig(c => ({ ...c, enabled }));
+    try {
+      const res = await axiosAdmin.put('/api/connectors/proxy', { ...config, enabled });
+      setConfig(c => ({ ...c, enabled: res.data.enabled, password: res.data.password, _hasPassword: res.data._hasPassword }));
+    } catch (err) {
+      setConfig(c => ({ ...c, enabled: !enabled }));
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    }
+  };
+
   const handleTest = async () => {
     if (!config.url) {
       showAlertMsg('error', 'Renseignez une URL de proxy avant de tester.');
@@ -266,7 +457,7 @@ function ProxyCard() {
           <input
             type="checkbox"
             checked={config.enabled}
-            onChange={e => setConfig(c => ({ ...c, enabled: e.target.checked }))}
+            onChange={handleToggle}
           />
           <span className={styles.slider} />
         </label>
@@ -419,6 +610,18 @@ function AIProviderCard() {
     }
   };
 
+  const handleToggle = async (e) => {
+    const enabled = e.target.checked;
+    setConfig(c => ({ ...c, enabled }));
+    try {
+      const res = await axiosAdmin.put('/api/connectors/aiprovider', { ...config, enabled });
+      setConfig(c => ({ ...c, enabled: res.data.enabled, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey }));
+    } catch (err) {
+      setConfig(c => ({ ...c, enabled: !enabled }));
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    }
+  };
+
   const handleTest = async () => {
     setTesting(true);
     setAlert(null);
@@ -464,7 +667,7 @@ function AIProviderCard() {
           <input
             type="checkbox"
             checked={config.enabled}
-            onChange={e => setConfig(c => ({ ...c, enabled: e.target.checked }))}
+            onChange={handleToggle}
           />
           <span className={styles.slider} />
         </label>
@@ -605,6 +808,17 @@ function RSSFeedCard() {
     }
   };
 
+  const handleToggle = async (e) => {
+    const enabled = e.target.checked;
+    setConfig(c => ({ ...c, enabled }));
+    try {
+      await axiosAdmin.put('/api/connectors/rss', { ...config, enabled });
+    } catch (err) {
+      setConfig(c => ({ ...c, enabled: !enabled }));
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    }
+  };
+
   if (loading) return (
     <div className={styles.card}>
       <div className={styles.cardLoading}><div className={styles.spinner} /></div>
@@ -629,7 +843,7 @@ function RSSFeedCard() {
           <input
             type="checkbox"
             checked={config.enabled}
-            onChange={e => setConfig(c => ({ ...c, enabled: e.target.checked }))}
+            onChange={handleToggle}
           />
           <span className={styles.slider} />
         </label>
@@ -725,6 +939,18 @@ function EmailProviderCard() {
     }
   };
 
+  const handleToggle = async (e) => {
+    const enabled = e.target.checked;
+    setConfig(c => ({ ...c, enabled }));
+    try {
+      const res = await axiosAdmin.put('/api/connectors/emailprovider', { ...config, enabled });
+      setConfig(c => ({ ...c, enabled: res.data.enabled, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey }));
+    } catch (err) {
+      setConfig(c => ({ ...c, enabled: !enabled }));
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    }
+  };
+
   const handleTest = async () => {
     if (!testTo.trim()) {
       showAlertMsg('error', 'Renseignez une adresse email de destination.');
@@ -768,7 +994,7 @@ function EmailProviderCard() {
           <input
             type="checkbox"
             checked={config.enabled}
-            onChange={e => setConfig(c => ({ ...c, enabled: e.target.checked }))}
+            onChange={handleToggle}
           />
           <span className={styles.slider} />
         </label>
@@ -950,6 +1176,7 @@ export default function SettingsPanel() {
       </div>
 
       <GoogleBooksCard />
+      <HardcoverCard />
       <AIProviderCard />
       <EmailProviderCard />
       <RSSFeedCard />
