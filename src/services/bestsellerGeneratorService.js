@@ -1,9 +1,8 @@
-import axios from 'axios';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import AIRequestLog from '../models/AIRequestLog.js';
 import { generateCompletion } from './aiProviderService.js';
-import { getGoogleBooksApiKey } from './googleBooksConfig.js';
+import { findBestBookMatch } from './bookSearchService.js';
 import { getAIProviderConfig } from './aiProviderConfig.js';
 
 dotenv.config();
@@ -190,41 +189,28 @@ function parseBestsellers(response, categories) {
   }
 }
 
-// Enrichit les bestsellers avec les données Google Books
+// Enrichit les bestsellers avec les données Google Books / Hardcover / Open Library
 async function enrichBestsellersWithGoogleBooks(bestsellers) {
-  const apiKey = await getGoogleBooksApiKey();
-  if (!apiKey) {
-    console.warn('Google Books API Key manquante, pas d\'enrichissement');
-    return bestsellers;
-  }
-
   const enriched = {};
 
   for (const [category, books] of Object.entries(bestsellers)) {
     enriched[category] = await Promise.all(
       books.map(async (book) => {
         try {
-          const query = `intitle:${encodeURIComponent(book.title)}+inauthor:${encodeURIComponent(book.author)}`;
-          const url = `https://www.googleapis.com/books/v1/volumes?q=${query}&key=${apiKey}&maxResults=1`;
-
-          const response = await axios.get(url, { timeout: 5000 });
-
-          if (response.data.items && response.data.items.length > 0) {
-            const googleBook = response.data.items[0];
-            const volumeInfo = googleBook.volumeInfo;
-
+          const match = await findBestBookMatch({ title: book.title, author: book.author });
+          if (match) {
             return {
               ...book,
-              thumbnail: volumeInfo.imageLinks?.thumbnail?.replace('http://', 'https://') || null,
-              description: volumeInfo.description || book.reason,
-              link: volumeInfo.infoLink || `https://books.google.fr/books?id=${googleBook.id}`,
-              googleBooksId: googleBook.id,
-              pageCount: volumeInfo.pageCount || 0,
-              publishedDate: volumeInfo.publishedDate || null
+              thumbnail: match.thumbnail,
+              description: match.description || book.reason,
+              link: match.link || `https://books.google.fr/books?id=${match.id}`,
+              googleBooksId: match.id,
+              pageCount: match.pageCount,
+              publishedDate: match.publishedDate,
             };
           }
         } catch (error) {
-          console.error(`Erreur Google Books pour "${book.title}":`, error.message);
+          console.error(`Erreur recherche livre pour "${book.title}":`, error.message);
         }
 
         return book;

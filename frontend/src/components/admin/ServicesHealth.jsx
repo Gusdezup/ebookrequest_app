@@ -93,7 +93,7 @@ const SERVICE_DEFS = [
     details: (s) => {
       const lines = [];
       if (s.username) lines.push(`Connecté : @${s.username}`);
-      if (s.quota) lines.push(`Quota : ${s.quota.used}/${s.quota.limit} requêtes (cette minute)`);
+      if (s.quota) lines.push(`Quota : ${s.quota.used}/${s.quota.limit} requêtes/min`);
       return lines;
     },
     error: (s) => s.error,

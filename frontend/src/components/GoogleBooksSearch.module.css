@@ -268,19 +268,6 @@
   min-width: 0;
 }
 
-.olBadge {
-  flex-shrink: 0;
-  font-size: 0.62rem;
-  font-weight: 700;
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  padding: 0 0.3rem;
-  line-height: 1.5;
-  opacity: 0.7;
-  letter-spacing: 0.03em;
-}
-
 .hcBadgeIcon {
   display: inline-block;
   width: 12px;

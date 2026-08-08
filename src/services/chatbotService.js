@@ -5,7 +5,7 @@ import BookRequest from '../models/BookRequest.js';
 import ReadingList from '../models/ReadingList.js';
 import User from '../models/User.js';
 import { isAIConfigured } from './aiProviderService.js';
-import { getGoogleBooksApiKey } from './googleBooksConfig.js';
+import { findBestBookMatch, searchBooksList } from './bookSearchService.js';
 import { getAIProviderConfig } from './aiProviderConfig.js';
 
 const DAILY_LIMIT = 10;
@@ -176,21 +176,17 @@ async function toolGetMyLibrary(userId, { status = 'all' } = {}) {
 }
 
 async function toolSearchBooks(query) {
-  const googleBooksKey = await getGoogleBooksApiKey();
-  if (!googleBooksKey) return { error: 'API Google Books non configurée.' };
   try {
-    const resp = await axios.get('https://www.googleapis.com/books/v1/volumes', {
-      params: { q: query, key: googleBooksKey, maxResults: 5, langRestrict: 'fr' },
-      timeout: 8000,
-    });
-    return (resp.data.items || []).map(item => ({
-      titre: item.volumeInfo.title,
-      auteur: (item.volumeInfo.authors || []).join(', '),
-      année: item.volumeInfo.publishedDate?.slice(0, 4),
-      description: item.volumeInfo.description?.slice(0, 200),
+    const results = await searchBooksList(query, 5);
+    if (results.length === 0) return { error: 'Aucun résultat trouvé.' };
+    return results.map(book => ({
+      titre: book.title,
+      auteur: (book.authors || []).join(', '),
+      année: book.publishedDate?.slice(0, 4),
+      description: book.description?.slice(0, 200),
     }));
   } catch {
-    return { error: 'Erreur lors de la recherche Google Books.' };
+    return { error: 'Erreur lors de la recherche de livres.' };
   }
 }
 
@@ -226,21 +222,13 @@ async function toolSubmitRequest(userId, { title, author = '', format, category 
   let pageCount   = 0;
 
   try {
-    const googleBooksKey = await getGoogleBooksApiKey();
-    if (googleBooksKey) {
-      const query = author ? `intitle:${title} inauthor:${author}` : `intitle:${title}`;
-      const resp = await axios.get('https://www.googleapis.com/books/v1/volumes', {
-        params: { q: query, key: googleBooksKey, maxResults: 1 },
-        timeout: 5000,
-      });
-      const info = resp.data.items?.[0]?.volumeInfo;
-      if (info) {
-        if (!author && info.authors?.length) author = info.authors.join(', ');
-        link        = info.previewLink || info.infoLink || link;
-        thumbnail   = info.imageLinks?.thumbnail || '';
-        description = info.description || '';
-        pageCount   = info.pageCount || 0;
-      }
+    const match = await findBestBookMatch({ title, author });
+    if (match) {
+      if (!author && match.authors?.length) author = match.authors.join(', ');
+      link        = match.link || link;
+      thumbnail   = match.thumbnail || '';
+      description = match.description || '';
+      pageCount   = match.pageCount || 0;
     }
   } catch {}
 

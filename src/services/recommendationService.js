@@ -1,9 +1,8 @@
-import axios from 'axios';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import AIRequestLog from '../models/AIRequestLog.js';
 import { generateCompletion } from './aiProviderService.js';
-import { getGoogleBooksApiKey } from './googleBooksConfig.js';
+import { findBestBookMatch } from './bookSearchService.js';
 import { getAIProviderConfig } from './aiProviderConfig.js';
 
 dotenv.config();
@@ -224,40 +223,26 @@ function generateRecommendationId(title, author) {
 
 // Enrichit les recommandations avec les couvertures de Google Books
 async function enrichWithGoogleBooksCovers(recommendations) {
-  const apiKey = await getGoogleBooksApiKey();
-  if (!apiKey || recommendations.length === 0) {
-    return recommendations;
-  }
+  if (recommendations.length === 0) return recommendations;
 
-  const enrichedRecommendations = await Promise.all(
+  return Promise.all(
     recommendations.map(async (rec) => {
       try {
-        const query = `intitle:${encodeURIComponent(rec.title)}+inauthor:${encodeURIComponent(rec.author)}`;
-        const url = `https://www.googleapis.com/books/v1/volumes?q=${query}&key=${apiKey}&maxResults=1`;
-
-        const response = await axios.get(url, { timeout: 5000 });
-
-        if (response.data.items && response.data.items.length > 0) {
-          const book = response.data.items[0];
-          const thumbnail = book.volumeInfo?.imageLinks?.thumbnail?.replace('http://', 'https://');
-          const link = book.volumeInfo?.infoLink || `https://books.google.fr/books?id=${book.id}`;
-
+        const match = await findBestBookMatch({ title: rec.title, author: rec.author });
+        if (match) {
           return {
             ...rec,
-            thumbnail: thumbnail || null,
-            link: link || null,
-            description: book.volumeInfo?.description || rec.reason
+            thumbnail: match.thumbnail,
+            link: match.link,
+            description: match.description || rec.reason,
           };
         }
       } catch (error) {
         console.error(`Erreur lors de la récupération de la couverture pour "${rec.title}":`, error.message);
       }
-
       return rec;
     })
   );
-
-  return enrichedRecommendations;
 }
 
 // Test de connectivité avec le provider AI configuré

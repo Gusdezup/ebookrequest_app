@@ -1,6 +1,5 @@
-import axios from 'axios';
 import Bestseller from '../models/Bestseller.js';
-import { getGoogleBooksApiKey } from './googleBooksConfig.js';
+import { findBestBookMatch } from './bookSearchService.js';
 
 // Cache pour les livres tendance par catégorie
 let cachedBooksByCategory = {};
@@ -118,40 +117,19 @@ export function clearTrendingBooksCache() {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function searchGoogleBooks(title, author) {
-  const apiKey = await getGoogleBooksApiKey();
-  if (!apiKey) {
-    return null;
-  }
-
-  const query = author && author !== 'Auteur inconnu'
-    ? `intitle:${title}+inauthor:${author}`
-    : `intitle:${title}`;
-
-  try {
-    const response = await axios.get('https://www.googleapis.com/books/v1/volumes', {
-      params: { q: query, key: apiKey, maxResults: 1, langRestrict: 'fr' }
-    });
-
-    if (response.data.items && response.data.items.length > 0) {
-      const item = response.data.items[0];
-      const book = item.volumeInfo;
-      return {
-        id: item.id,
-        title: book.title || null,
-        author: book.authors?.[0] || null,
-        thumbnail: book.imageLinks?.thumbnail?.replace('http:', 'https:') ||
-                   book.imageLinks?.smallThumbnail?.replace('http:', 'https:') || null,
-        description: book.description || null,
-        pageCount: book.pageCount || 0,
-        link: book.infoLink || book.previewLink || null,
-        language: book.language || 'unknown',
-      };
-    }
-    return null;
-  } catch (error) {
-    if (error.response?.status !== 429) {
-      console.error('Erreur lors de la recherche Google Books:', error.message);
-    }
-    return null;
-  }
+  const match = await findBestBookMatch({
+    title,
+    author: author && author !== 'Auteur inconnu' ? author : '',
+  });
+  if (!match) return null;
+  return {
+    id: match.id,
+    title: match.title || null,
+    author: match.author,
+    thumbnail: match.thumbnail,
+    description: match.description,
+    pageCount: match.pageCount,
+    link: match.link,
+    language: match.language,
+  };
 }

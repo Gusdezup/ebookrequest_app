@@ -4,6 +4,7 @@ import styles from './GoogleBooksSearch.module.css';
 import BarcodeScanner from './BarcodeScanner';
 import { GoogleIcon } from './admin/brandIcons';
 import hardcoverLogo from '../assets/icons/hardcover.png';
+import openLibraryLogo from '../assets/icons/open-library.png';
 
 const PER_PAGE = 10;
 const MIN_LEN  = 2;
@@ -418,7 +419,9 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
                       <div className={styles.bookTitleRow}>
                         <h4>{book.volumeInfo.title}</h4>
                         {book.id?.startsWith('ol-') && (
-                          <span className={styles.olBadge} title="Résultat Open Library — le lien de la demande pointera vers openlibrary.org">OL</span>
+                          <span className={styles.googleBadge} title="Résultat Open Library — le lien de la demande pointera vers openlibrary.org">
+                            <img src={openLibraryLogo} alt="" className={styles.hcBadgeIcon} />
+                          </span>
                         )}
                         {book.id?.startsWith('hc-') && (
                           <span className={styles.googleBadge} title="Résultat Hardcover — le lien de la demande pointera vers hardcover.app">
