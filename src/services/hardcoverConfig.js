@@ -45,3 +45,13 @@ export function takeHardcoverQuota() {
   rateCount++;
   return true;
 }
+
+// Etat du quota courant, pour affichage (ex. carte Santé des services).
+export function getHardcoverQuotaStatus() {
+  const now = Date.now();
+  const windowActive = now - rateWindowStart < RATE_WINDOW_MS;
+  return {
+    used: windowActive ? rateCount : 0,
+    limit: RATE_LIMIT,
+  };
+}

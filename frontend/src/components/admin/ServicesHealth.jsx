@@ -3,6 +3,7 @@ import axiosAdmin from '../../axiosAdmin';
 import styles from './ServicesHealth.module.css';
 import { useSocketStatus } from '../../hooks/useSocket';
 import { OpenAIIcon, ClaudeIcon, OllamaIcon, GoogleIcon } from './brandIcons';
+import hardcoverLogoMono from '../../assets/icons/hardcover-mono.png';
 
 const AI_PROVIDER_ICONS = { openai: OpenAIIcon, claude: ClaudeIcon, ollama: OllamaIcon };
 
@@ -82,6 +83,21 @@ const SERVICE_DEFS = [
     isConnected: (s) => s.connected,
     details: (s) => s.connected && s.totalItems != null ? [`Résultats trouvés (test) : ${s.totalItems}`] : [],
     error: (s) => s.error,
+  },
+  {
+    key: 'hardcover',
+    label: () => 'Hardcover',
+    icon: <img src={hardcoverLogoMono} alt="" width={22} height={22} className={styles.cardIconImg} />,
+    isEnabled: (s) => s.enabled,
+    isConnected: (s) => s.connected,
+    details: (s) => {
+      const lines = [];
+      if (s.username) lines.push(`Connecté : @${s.username}`);
+      if (s.quota) lines.push(`Quota : ${s.quota.used}/${s.quota.limit} requêtes (cette minute)`);
+      return lines;
+    },
+    error: (s) => s.error,
+    hideIfDisabled: true,
   },
   {
     key: 'proxy',

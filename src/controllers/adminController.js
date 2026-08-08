@@ -11,6 +11,7 @@ import { pingAnnasArchive, getAnnasArchiveConfig } from '../services/annasArchiv
 import { testCalibreConnection } from '../services/calibreService.js';
 import { decrypt } from '../services/cryptoService.js';
 import { getGoogleBooksApiKey } from '../services/googleBooksConfig.js';
+import { getHardcoverApiKey, getHardcoverQuotaStatus } from '../services/hardcoverConfig.js';
 import { getProxyConfig, getProxyAgent } from '../services/proxyConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -94,6 +95,38 @@ async function checkGoogleBooks() {
     return { enabled: true, connected: false, error: reason };
   } catch (err) {
     return { enabled: true, connected: false, error: err.message };
+  }
+}
+
+async function checkHardcover() {
+  const apiKey = await getHardcoverApiKey();
+  if (!apiKey) return { enabled: false, connected: false, error: null };
+  try {
+    const res = await axios.post(
+      'https://api.hardcover.app/v1/graphql',
+      { query: '{ me { username } }' },
+      {
+        timeout: 6000,
+        validateStatus: () => true,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`,
+        },
+      }
+    );
+    if (res.status === 200 && !res.data?.errors) {
+      return {
+        enabled: true,
+        connected: true,
+        error: null,
+        username: res.data?.data?.me?.[0]?.username ?? res.data?.data?.me?.username ?? null,
+        quota: getHardcoverQuotaStatus(),
+      };
+    }
+    const reason = res.data?.errors?.[0]?.message || `HTTP ${res.status}`;
+    return { enabled: true, connected: false, error: reason, quota: getHardcoverQuotaStatus() };
+  } catch (err) {
+    return { enabled: true, connected: false, error: err.message, quota: getHardcoverQuotaStatus() };
   }
 }
 
@@ -358,7 +391,7 @@ function withTimeout(promise, ms, fallback) {
 export const getServicesHealth = async (req, res) => {
   try {
     const providerInfo = await getProviderInfo();
-    const [aiStatus, flareSolverr, apprise, calibreWeb, valentine, annasArchive, mcp, googleBooks, proxy] = await Promise.all([
+    const [aiStatus, flareSolverr, apprise, calibreWeb, valentine, annasArchive, mcp, googleBooks, hardcover, proxy] = await Promise.all([
       withTimeout(testAIProviderConnection(), 8000, { connected: false, error: 'timeout' }),
       withTimeout(checkFlareSolverr(), 6000, { connected: false, error: 'timeout' }),
       withTimeout(checkAppriseServer(), 6000, { reachable: false, error: 'timeout' }),
@@ -367,6 +400,7 @@ export const getServicesHealth = async (req, res) => {
       withTimeout(checkAnnasArchiveConnector(), 8000, { enabled: true, connected: false, error: 'timeout' }),
       withTimeout(checkMcpServer(), 6000, { enabled: false, connected: false, error: 'timeout' }),
       withTimeout(checkGoogleBooks(), 6000, { enabled: true, connected: false, error: 'timeout' }),
+      withTimeout(checkHardcover(), 6000, { enabled: true, connected: false, error: 'timeout' }),
       withTimeout(checkProxy(), 8000, { enabled: false, connected: false, mode: null, error: 'timeout' }),
     ]);
 
@@ -418,6 +452,13 @@ export const getServicesHealth = async (req, res) => {
           connected: googleBooks.connected,
           error: googleBooks.error || null,
           totalItems: googleBooks.totalItems ?? null,
+        },
+        hardcover: {
+          enabled: hardcover.enabled,
+          connected: hardcover.connected,
+          error: hardcover.error || null,
+          username: hardcover.username || null,
+          quota: hardcover.quota || null,
         },
         proxy: {
           enabled: proxy.enabled,

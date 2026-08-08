@@ -93,6 +93,13 @@
   margin-top: 0.1rem;
 }
 
+/* Icône de marque pré-générée en deux tons de gris neutre (cf. hardcover-mono.png) :
+   un filtre grayscale() perdait le contraste voulu, un mask CSS perdait le détail
+   des étoiles internes (alpha uniforme sur toute la couverture). */
+.cardIconImg {
+  opacity: 0.85;
+}
+
 .cardBody {
   flex: 1;
   min-width: 0;
