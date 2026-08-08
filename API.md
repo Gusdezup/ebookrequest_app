@@ -587,7 +587,7 @@ curl -X POST https://app.ndd.fr/api/connectors/predb/test \
 
 ## Réglages (admin)
 
-Config transverse (Google Books, IA, Email, RSS, Proxy sortant) — DB en priorité, repli sur `.env` avec migration automatique au premier `GET` si la variable correspondante existe déjà.
+Config transverse (Google Books, Hardcover, IA, Email, RSS, Proxy sortant) — DB en priorité, repli sur `.env` avec migration automatique au premier `GET` si la variable correspondante existe déjà (sauf Hardcover, qui n'a pas de variable `.env` : désactivé par défaut, config uniquement en DB).
 
 ### `GET /api/connectors/googlebooks`
 ```bash
@@ -609,6 +609,28 @@ curl -X POST https://app.ndd.fr/api/connectors/googlebooks/test \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"apiKey": "AIzaSy..."}'
+```
+
+### `GET /api/connectors/hardcover`
+```bash
+curl https://app.ndd.fr/api/connectors/hardcover \
+  -H "Authorization: Bearer <token>"
+```
+
+### `PUT /api/connectors/hardcover`
+```bash
+curl -X PUT https://app.ndd.fr/api/connectors/hardcover \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "apiKey": "hc_..."}'
+```
+
+### `POST /api/connectors/hardcover/test`
+```bash
+curl -X POST https://app.ndd.fr/api/connectors/hardcover/test \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"apiKey": "hc_..."}'
 ```
 
 ### `GET /api/connectors/aiprovider`

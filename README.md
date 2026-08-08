@@ -57,6 +57,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - **Backend** — Node.js, Express, MongoDB (Mongoose), JWT
 - **Notifications** — Email (SMTP), Push (VAPID), Apprise
 - **IA** — OpenAI / Ollama / Claude (Anthropic) (recommandations, descriptions)
+- **APIs** — Google Books, Hardcover, Open Library (recherche et métadonnées, avec repli automatique entre les trois)
 - **Connecteurs** — Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via FlareSolverr), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
 - **Visionneuse** — PDF (navigateur natif), EPUB (epub.js via react-reader), CBZ/CBR (JSZip)
 - **Conversion** — Calibre (`ebook-convert`) intégré dans l'image Docker — EPUB ↔ MOBI, AZW3, FB2 ; CBZ → PDF (JSZip + pdfkit, sans dépendance externe)
@@ -66,12 +67,13 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 
 **Demandes**
 - Soumission et suivi de demandes de livres
-- Recherche via Google Books API avec auto-complétion des métadonnées :
+- Recherche avec auto-complétion des métadonnées (Google Books, avec repli Hardcover/Open Library — voir ci-dessous) :
   - **Par titre ou ISBN** — recherche directe ou par code ISBN-10/13
   - **Par auteur** — résultats filtrés en français, triés du plus récent au plus ancien
   - **Auteur + Titre combinés** — saisir `Prénom Nom Titre du livre` sans séparateur (ex : `Virginie Grimaldi D'autres printemps`)
   - **Scan de code-barres** — scanner l'ISBN directement depuis la caméra de l'appareil
-- Recherche résiliente : retry automatique avec backoff sur les erreurs Google Books transitoires (503/429), requêtes multi-variantes en parallèle (formes du nom d'auteur, avec/sans titre), fallback automatique vers Open Library si Google Books échoue, et proxy sortant optionnel en cas de throttling persistant (voir [Proxy sortant](#proxy-sortant-optionnel))
+- Recherche résiliente : retry automatique avec backoff sur les erreurs Google Books transitoires (503/429), requêtes multi-variantes en parallèle (formes du nom d'auteur, avec/sans titre), repli automatique **Hardcover** puis **Open Library** si Google Books échoue ou est désactivé, et proxy sortant optionnel en cas de throttling persistant (voir [Proxy sortant](#proxy-sortant-optionnel))
+- Google Books et Hardcover s'activent/se désactivent indépendamment depuis **Réglages** — Google seul, Hardcover seul, les deux (avec repli), ou aucun des deux (recherche via Open Library uniquement)
 - Vérification de disponibilité à la soumission (flux RSS PreDB.me + API PreDB.fr)
 - Quota de demandes configurable par utilisateur (nombre + fenêtre glissante en jours)
 - Soumission admin au nom d'un autre utilisateur
@@ -115,7 +117,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - Page Découverte (tendances, bestsellers, recommandations IA)
 - **EbookRequest AI** — chatbot intégré (icône flottante bas-droite) avec function calling :
   - Consulter ses demandes, sa bibliothèque et ses statistiques de quota
-  - Rechercher un livre via Google Books et soumettre une demande directement
+  - Rechercher un livre (Google Books, avec repli Hardcover/Open Library) et soumettre une demande directement
   - Outils admin : demandes en attente et statistiques globales
   - Accès activé par utilisateur depuis le panel admin, quota journalier configurable par utilisateur (défaut : 10 messages/jour)
   - Compatible OpenAI, Claude (Anthropic) et Ollama — utilise le même fournisseur IA que le reste de l'application
@@ -128,7 +130,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 
 **Intégration (MCP)**
 - Serveur MCP pour gérer ses demandes directement depuis un assistant IA
-- Outils utilisateur : rechercher un livre, créer une demande (couverture auto via Google Books), consulter ses demandes, vérifier la disponibilité, annuler une demande, consulter stats et bibliothèque
+- Outils utilisateur : rechercher un livre, créer une demande (couverture auto via Google Books/Hardcover/Open Library), consulter ses demandes, vérifier la disponibilité, annuler une demande, consulter stats et bibliothèque
 - Outils admin : demandes en attente, statistiques globales, changer le statut d'une demande, lister les utilisateurs
 - Compatible avec tous les clients MCP : [ChatMCP](https://apps.apple.com/fr/app/chatmcp/id6745196560) (iOS/iPadOS), Claude Desktop (Mac/Windows), Claude Web
 - Deux modes de déploiement : **HTTP** (hébergé sur VPS, accessible depuis n'importe où) ou **stdio** (local, pour Claude Desktop)
@@ -261,7 +263,7 @@ npx web-push generate-vapid-keys
 
 #### Connecteurs & services externes
 
-> `GOOGLE_BOOKS_API_KEY` et `RSS_FEED_URL` sont **optionnelles depuis la 1.5.2** — configurables dans **Réglages**, avec la même migration automatique depuis le `.env` que l'email et l'IA.
+> `GOOGLE_BOOKS_API_KEY` et `RSS_FEED_URL` sont **optionnelles depuis la 1.5.2** — configurables dans **Réglages**, avec la même migration automatique depuis le `.env` que l'email et l'IA. **Hardcover** (repli entre Google Books et Open Library) n'a pas de variable d'environnement : clé API et activation se configurent uniquement depuis **Réglages** (désactivé par défaut).
 
 | Variable | Description |
 |---|---|
@@ -303,7 +305,7 @@ apprise:
 
 #### Proxy sortant (optionnel)
 
-Si votre IP serveur est throttlée/bloquée par Google Books ou Open Library (rate-limit, IP d'hébergeur mutualisé déjà signalée), un proxy HTTP(S) sortant peut être configuré depuis **Réglages → Proxy sortant** dans le panel admin — pas de variable d'environnement, uniquement via l'interface. Deux modes disponibles :
+Si votre IP serveur est throttlée/bloquée par Google Books, Hardcover ou Open Library (rate-limit, IP d'hébergeur mutualisé déjà signalée), un proxy HTTP(S) sortant peut être configuré depuis **Réglages → Proxy sortant** dans le panel admin — pas de variable d'environnement, uniquement via l'interface. Deux modes disponibles :
 - **Repli** (par défaut) — connexion directe en priorité, proxy utilisé seulement en cas d'échec.
 - **Par défaut** — proxy en priorité, repli sur la connexion directe si le proxy échoue.
 
