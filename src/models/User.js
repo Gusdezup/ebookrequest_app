@@ -120,6 +120,11 @@ const userSchema = new mongoose.Schema({
     username: { type: String, default: '' },
     password: { type: String, default: '' }, // chiffré via cryptoService
   },
+  hardcover: {
+    enabled: { type: Boolean, default: false },
+    apiKey:  { type: String, default: '' }, // chiffré via cryptoService — clé personnelle, distincte de celle des Réglages admin
+    apiKeySavedAt: { type: Date, default: null }, // date d'enregistrement de la clé (rappel d'expiration à 1 an)
+  },
   chatbotEnabled: {
     type: Boolean,
     default: false,

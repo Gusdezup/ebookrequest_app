@@ -156,7 +156,7 @@ function GoogleBooksCard() {
             </button>
           </div>
           {config._hasApiKey && !config.apiKey && (
-            <p className={styles.fieldHint}>Clé déjà enregistrée — laisser vide pour conserver.</p>
+            <p className={styles.fieldHint}>Clé déjà enregistrée - laisser vide pour conserver.</p>
           )}
         </div>
 
@@ -283,7 +283,7 @@ function HardcoverCard() {
           </div>
           <div>
             <p className={styles.cardName}>Hardcover</p>
-            <p className={styles.cardDesc}>Clé API utilisée en repli de Google Books — quand celui-ci est désactivé ou ne trouve aucun résultat (avant Open Library).</p>
+            <p className={styles.cardDesc}>Clé API utilisée en repli de Google Books quand celui-ci est désactivé ou ne trouve aucun résultat (avant Open Library).</p>
           </div>
         </div>
         <label className={styles.switch}>
@@ -301,7 +301,7 @@ function HardcoverCard() {
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
-          Les clés Hardcover expirent après 1 an et sont réinitialisées chaque 1er janvier — pensez à la renouveler sur hardcover.app (dernier enregistrement : {new Date(config._keyUpdatedAt).toLocaleDateString('fr-FR')}).
+          Les clés Hardcover expirent après 1 an et sont réinitialisées chaque 1er janvier pensez à la renouveler sur hardcover.app (dernier enregistrement : {new Date(config._keyUpdatedAt).toLocaleDateString('fr-FR')}).
         </div>
       )}
 
@@ -322,7 +322,7 @@ function HardcoverCard() {
             </button>
           </div>
           {config._hasApiKey && !config.apiKey && (
-            <p className={styles.fieldHint}>Clé déjà enregistrée — laisser vide pour conserver.</p>
+            <p className={styles.fieldHint}>Clé déjà enregistrée - laisser vide pour conserver.</p>
           )}
         </div>
 

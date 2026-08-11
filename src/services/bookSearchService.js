@@ -68,6 +68,8 @@ function normalizeHardcoverDocument(doc) {
       imageLinks: { thumbnail: cover },
       previewLink: doc.slug ? `https://hardcover.app/books/${doc.slug}` : null,
       infoLink: doc.slug ? `https://hardcover.app/books/${doc.slug}` : null,
+      communityRating: doc.rating || null,
+      communityRatingsCount: doc.ratings_count || null,
     },
   };
 }
@@ -144,6 +146,8 @@ function normalizeMatch(vi, id, source) {
     language: vi.language || 'fr',
     thumbnail: vi.imageLinks?.thumbnail ? vi.imageLinks.thumbnail.replace(/^http:\/\//, 'https://') : null,
     link: vi.previewLink || vi.infoLink || null,
+    communityRating: vi.communityRating || null,
+    communityRatingsCount: vi.communityRatingsCount || null,
   };
 }
 

@@ -36,7 +36,7 @@ const ProfilePage = () => {
 
   if (!data) return null;
 
-  const { user, stats, calibreEnabled } = data;
+  const { user, stats, calibreEnabled, hardcoverEnabled } = data;
   const memberSince = new Date(user.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 
   const statCards = [
@@ -153,6 +153,56 @@ const ProfilePage = () => {
               </div>
               <div className={styles.progressBar}>
                 <div className={styles.progressFill} style={{ width: `${Math.round((stats.calibreSynced / stats.completed) * 100)}%` }} />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {hardcoverEnabled && (
+        <>
+          <h2 className={styles.sectionTitle} style={{ marginTop: '2rem' }}>Hardcover</h2>
+          <div className={styles.calibreGrid}>
+            <div className={styles.statCard}>
+              <div className={styles.statIcon} style={{ color: '#10b981' }}>
+                <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                  <polyline points="9 11 12 14 22 4" strokeWidth="2.5"/>
+                </svg>
+              </div>
+              <div className={styles.statValue} style={{ color: '#10b981' }}>{stats.hardcoverSynced}</div>
+              <div className={styles.statLabel}>synchronisé{stats.hardcoverSynced > 1 ? 's' : ''}</div>
+            </div>
+            <div className={styles.statCard}>
+              <div className={styles.statIcon} style={{ color: '#ef4444' }}>
+                <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+              </div>
+              <div className={styles.statValue} style={{ color: stats.hardcoverFailed > 0 ? '#ef4444' : 'var(--color-text-muted)' }}>{stats.hardcoverFailed}</div>
+              <div className={styles.statLabel}>échoué{stats.hardcoverFailed > 1 ? 's' : ''}</div>
+            </div>
+            <div className={styles.statCard}>
+              <div className={styles.statIcon} style={{ color: '#6366f1' }}>
+                <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+              </div>
+              <div className={styles.statValue} style={{ color: '#6366f1' }}>
+                {reading && reading.total > 0 ? Math.round((stats.hardcoverSynced / reading.total) * 100) : 0}%
+              </div>
+              <div className={styles.statLabel}>taux de sync</div>
+            </div>
+          </div>
+          {reading && reading.total > 0 && (
+            <div className={styles.progressCard}>
+              <div className={styles.progressHeader}>
+                <span>Livres synchronisés</span>
+                <span>{stats.hardcoverSynced} / {reading.total}</span>
+              </div>
+              <div className={styles.progressBar}>
+                <div className={styles.progressFill} style={{ width: `${Math.round((stats.hardcoverSynced / reading.total) * 100)}%` }} />
               </div>
             </div>
           )}

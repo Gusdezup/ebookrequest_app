@@ -8,12 +8,20 @@ const readingListSchema = new mongoose.Schema({
   googleBooksId: { type: String, default: '' },
   status: { type: String, enum: ['unread', 'read'], default: 'unread' },
   source: { type: String, enum: ['manual', 'request'], default: 'manual' },
+  // Origine réelle pour l'affichage (badge), distincte de `source` qui reste 'manual'
+  // pour ne pas casser le tri/filtre existant (Demande/Manuel).
+  importedFrom: { type: String, enum: ['hardcover', null], default: null },
   requestId: { type: mongoose.Schema.Types.ObjectId, ref: 'BookRequest' },
   readAt: { type: Date, default: null },
   rating: { type: Number, min: 0, max: 5, default: 0 },
   epubLocation:    { type: String, default: '' },   // CFI position dans l'EPUB
   readingProgress: { type: Number, default: 0, min: 0, max: 100 }, // % lu (0-100)
   notes: { type: String, default: '' },             // Note libre de l'utilisateur
+  hardcoverSync: {
+    status:   { type: String, enum: ['synced', 'error', null], default: null },
+    syncedAt: { type: Date, default: null }, // date de la dernière tentative (succès ou échec)
+    error:    { type: String, default: '' },
+  },
 }, { timestamps: true });
 
 // Index pour éviter les doublons par demande

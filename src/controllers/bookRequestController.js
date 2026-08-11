@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import Notification from '../models/Notification.js';
 import AdminLog from '../models/AdminLog.js';
 import ReadingList from '../models/ReadingList.js';
+import { syncReadingEntryToHardcover } from '../services/hardcoverSyncService.js';
 import { sendPushToUser } from '../services/webPushService.js';
 import { downloadWithFallback } from '../services/connectorOrchestrator.js';
 import { emitToUser, emitToAdmins } from '../services/socketService.js';
@@ -159,7 +160,7 @@ export const createBookRequest = async (req, res) => {
 
     // Auto-ajouter à la liste de lecture de l'utilisateur
     try {
-      await ReadingList.create({
+      const readingEntry = await ReadingList.create({
         userId: req.user.id,
         title: newRequest.title,
         author: newRequest.author,
@@ -168,6 +169,7 @@ export const createBookRequest = async (req, res) => {
         requestId: newRequest._id,
         status: 'unread',
       });
+      syncReadingEntryToHardcover(req.user.id, readingEntry).catch(() => {});
     } catch (readingErr) {
       // Ne pas bloquer la création si l'ajout à la liste échoue
       console.error('Erreur ajout liste de lecture:', readingErr.message);

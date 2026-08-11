@@ -437,10 +437,16 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
                       {book.volumeInfo.authors && (
                         <p className={styles.bookAuthor}>{book.volumeInfo.authors.join(', ')}</p>
                       )}
-                      {(book.volumeInfo.publishedDate || book.volumeInfo.pageCount) && (
+                      {(book.volumeInfo.publishedDate || book.volumeInfo.pageCount || book.volumeInfo.communityRating) && (
                         <p className={styles.bookMeta}>
                           {book.volumeInfo.publishedDate && new Date(book.volumeInfo.publishedDate).getFullYear()}
                           {book.volumeInfo.pageCount && ` · ${book.volumeInfo.pageCount} p.`}
+                          {book.volumeInfo.communityRating && (
+                            <span className={styles.communityRating} title={book.volumeInfo.communityRatingsCount ? `${book.volumeInfo.communityRatingsCount} notes Hardcover` : 'Note Hardcover'}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                              {Number(book.volumeInfo.communityRating).toFixed(1)}
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>

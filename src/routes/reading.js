@@ -1,6 +1,7 @@
 import express from 'express';
 import ReadingList from '../models/ReadingList.js';
 import { requireAuth } from '../middleware/auth.js';
+import { syncReadingEntryToHardcover } from '../services/hardcoverSyncService.js';
 
 const router = express.Router();
 
@@ -54,6 +55,9 @@ router.post('/', requireAuth, async (req, res) => {
       // (l'index sparse { userId, requestId } ne s'applique que quand requestId est défini)
     });
 
+    // Synchro Hardcover en tâche de fond — ne doit jamais retarder/bloquer la réponse
+    syncReadingEntryToHardcover(req.user.id, book).catch(() => {});
+
     res.status(201).json(book);
   } catch (error) {
     console.error('Erreur ajout livre:', error);
@@ -68,6 +72,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (!book) return res.status(404).json({ message: 'Livre non trouvé' });
 
     const { status, rating, epubLocation, readingProgress, notes } = req.body;
+    const wasUnstarted = book.readingProgress === 0;
     if (status !== undefined) {
       book.status = status;
       book.readAt = status === 'read' ? new Date() : null;
@@ -80,7 +85,32 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (notes !== undefined) book.notes = notes.trim();
     await book.save();
 
-    res.json(book);
+    // Synchro Hardcover : on attend le résultat (appel unique, rapide) pour pouvoir
+    // informer l'utilisateur en cas d'échec, sans jamais faire échouer la requête.
+    // syncReadingEntryToHardcover persiste elle-même hardcoverSync en DB ; on reconstruit
+    // ici la même valeur pour la renvoyer directement (évite un aller-retour DB en plus).
+    // Déclenchée sur statut/note, ou au premier passage à une progression > 0 (bascule
+    // "à lire" → "en cours" côté Hardcover) — pas à chaque mise à jour de position de
+    // lecture, bien trop fréquente pour le rate-limit Hardcover.
+    const justStartedReading = wasUnstarted && book.readingProgress > 0;
+    let hardcoverSync = null;
+    let hardcoverSyncField = book.hardcoverSync;
+    if (status !== undefined || rating !== undefined || justStartedReading) {
+      hardcoverSync = await syncReadingEntryToHardcover(req.user.id, book).catch(() => null);
+      if (hardcoverSync?.attempted) {
+        hardcoverSyncField = {
+          status: hardcoverSync.success ? 'synced' : 'error',
+          syncedAt: new Date(),
+          error: hardcoverSync.error || '',
+        };
+      }
+    }
+
+    res.json({
+      ...book.toObject(),
+      hardcoverSync: hardcoverSyncField,
+      _hardcoverSync: hardcoverSync?.attempted ? hardcoverSync : undefined,
+    });
   } catch (error) {
     console.error('Erreur mise à jour statut:', error);
     res.status(500).json({ message: 'Erreur serveur' });

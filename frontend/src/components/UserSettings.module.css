@@ -70,6 +70,11 @@
   filter: brightness(0) saturate(100%) invert(48%) sepia(98%) saturate(400%) hue-rotate(200deg) brightness(80%);
 }
 
+/* Logo de marque en couleurs réelles (ex. Hardcover) — ne pas l'écraser avec le filtre accent ci-dessus */
+.sectionTitleLogo {
+  filter: none !important;
+}
+
 .divider {
   height: 1px;
   background: var(--color-border);
@@ -375,6 +380,12 @@ input:focus + .slider {
 }
 
 /* ── Buttons ── */
+.secondaryActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .cardActions {
   margin-top: 1.25rem;
   display: flex;
@@ -507,6 +518,15 @@ input:focus + .slider {
 
   .cardActions {
     flex-direction: column;
+  }
+
+  .secondaryActions {
+    flex-direction: column;
+  }
+
+  .secondaryActions .btnOutline {
+    width: 100%;
+    justify-content: center;
   }
 
   .cardActions .btnOutline {

@@ -350,6 +350,7 @@
 .sourceBadge {
   display: inline-flex;
   align-items: center;
+  gap: 0.25rem;
   padding: 0.1rem 0.45rem;
   border-radius: 1rem;
   font-size: 0.68rem;
@@ -359,9 +360,30 @@
   letter-spacing: 0.02em;
 }
 
+.sourceBadgeIcon {
+  width: 10px;
+  height: 10px;
+  object-fit: contain;
+}
+
 .sourceBadgeManual {
   background: rgba(100, 116, 139, 0.15);
   color: #94a3b8;
+}
+
+.hardcoverSyncBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 1rem;
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.hardcoverSyncBadge img {
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
 }
 
 /* Notes */

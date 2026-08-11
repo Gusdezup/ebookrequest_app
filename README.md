@@ -14,7 +14,7 @@
 
 </div>
 
-Gérez les demandes de livres numériques de vos proches, de la soumission jusqu'au téléchargement automatique — self-hosted, en français.
+Gérez les demandes de livres numériques de vos proches, de la soumission jusqu'au téléchargement automatique, self-hosted, en français.
 
 > 🇫🇷 Projet développé par et pour la communauté francophone. Interface, documentation et support entièrement en français.
 >
@@ -53,27 +53,27 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 
 ## Stack
 
-- **Frontend** — React, React Router, Chart.js, Axios
-- **Backend** — Node.js, Express, MongoDB (Mongoose), JWT
-- **Notifications** — Email (SMTP), Push (VAPID), Apprise
-- **IA** — OpenAI / Ollama / Claude (Anthropic) (recommandations, descriptions)
-- **APIs** — Google Books, Hardcover, Open Library (recherche et métadonnées, avec repli automatique entre les trois)
-- **Connecteurs** — Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via FlareSolverr), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
-- **Visionneuse** — PDF (navigateur natif), EPUB (epub.js via react-reader), CBZ/CBR (JSZip)
-- **Conversion** — Calibre (`ebook-convert`) intégré dans l'image Docker — EPUB ↔ MOBI, AZW3, FB2 ; CBZ → PDF (JSZip + pdfkit, sans dépendance externe)
-- **Déploiement** — Docker, GitHub Actions, Docker Hub
+- **Frontend :** React, React Router, Chart.js, Axios
+- **Backend :** Node.js, Express, MongoDB (Mongoose), JWT
+- **Notifications :** Email (SMTP), Push (VAPID), Apprise
+- **IA :** OpenAI / Ollama / Claude (Anthropic) (recommandations, descriptions)
+- **APIs :** Google Books, Hardcover, Open Library (recherche et métadonnées, avec repli automatique entre les trois)
+- **Connecteurs :** Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via FlareSolverr), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
+- **Visionneuse :** PDF (navigateur natif), EPUB (epub.js via react-reader), CBZ/CBR (JSZip)
+- **Conversion :** Calibre (`ebook-convert`) intégré dans l'image Docker EPUB ↔ MOBI, AZW3, FB2 ; CBZ → PDF (JSZip + pdfkit, sans dépendance externe)
+- **Déploiement :** Docker, GitHub Actions, Docker Hub
 
 ## Fonctionnalités
 
 **Demandes**
 - Soumission et suivi de demandes de livres
-- Recherche avec auto-complétion des métadonnées (Google Books, avec repli Hardcover/Open Library — voir ci-dessous) :
-  - **Par titre ou ISBN** — recherche directe ou par code ISBN-10/13
-  - **Par auteur** — résultats filtrés en français, triés du plus récent au plus ancien
-  - **Auteur + Titre combinés** — saisir `Prénom Nom Titre du livre` sans séparateur (ex : `Virginie Grimaldi D'autres printemps`)
-  - **Scan de code-barres** — scanner l'ISBN directement depuis la caméra de l'appareil
+- Recherche avec auto-complétion des métadonnées (Google Books, avec repli Hardcover/Open Library voir ci-dessous) :
+  - **Par titre ou ISBN :** recherche directe ou par code ISBN-10/13
+  - **Par auteur :** résultats filtrés en français, triés du plus récent au plus ancien
+  - **Auteur + Titre combinés :** saisir `Prénom Nom Titre du livre` sans séparateur (ex : `Virginie Grimaldi D'autres printemps`)
+  - **Scan de code-barres :** scanner l'ISBN directement depuis la caméra de l'appareil
 - Recherche résiliente : retry automatique avec backoff sur les erreurs Google Books transitoires (503/429), requêtes multi-variantes en parallèle (formes du nom d'auteur, avec/sans titre), repli automatique **Hardcover** puis **Open Library** si Google Books échoue ou est désactivé, et proxy sortant optionnel en cas de throttling persistant (voir [Proxy sortant](#proxy-sortant-optionnel))
-- Google Books et Hardcover s'activent/se désactivent indépendamment depuis **Réglages** — Google seul, Hardcover seul, les deux (avec repli), ou aucun des deux (recherche via Open Library uniquement)
+- Google Books et Hardcover s'activent/se désactivent indépendamment depuis **Réglages** Google seul, Hardcover seul, les deux (avec repli), ou aucun des deux (recherche via Open Library uniquement)
 - Vérification de disponibilité à la soumission (flux RSS PreDB.me + API PreDB.fr)
 - Quota de demandes configurable par utilisateur (nombre + fenêtre glissante en jours)
 - Soumission admin au nom d'un autre utilisateur
@@ -87,7 +87,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 
 **Utilisateurs & accès**
 - Inscription par invitation email ou code d'invitation (usage limité, expiration configurable)
-- Authentification deux facteurs (2FA — TOTP) avec codes de récupération
+- Authentification deux facteurs (2FA - TOTP) avec codes de récupération
 - Réinitialisation de mot de passe par email
 - Gestion des utilisateurs (rôles, quotas, activation/désactivation)
 - Catalogue OPDS pour accès depuis les liseuses (Calibre, KOReader…)
@@ -101,32 +101,36 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 
 **Bibliothèque & lecture**
 - Bibliothèque personnelle avec statut de lecture, notation par étoiles et notes libres
-- Tri par date, titre, auteur ou note — filtre par source (demandes / ajouts manuels)
+- Tri par date, titre, auteur ou note, filtre par source (demandes / ajouts manuels)
+- **Synchronisation Hardcover :** (par utilisateur, clé API personnelle dans les paramètres, distincte de la clé Hardcover admin utilisée pour la recherche) :
+  - Push automatique vers Hardcover à chaque changement de statut (à lire / en cours / lu, déduit du pourcentage de lecture) ou de note, à l'ajout d'un livre (manuel ou via une demande complétée)
+  - Import initial de la bibliothèque Hardcover existante — n'ajoute que les livres absents côté EbookRequest, ne modifie jamais un livre déjà suivi
+  - Badge de statut (✓/✗) sur chaque livre, bouton « Synchroniser maintenant », et cron de rattrapage quotidien en filet de sécurité
 - Visionneuse in-browser sans installation :
-  - **PDF** — viewer natif du navigateur
-  - **EPUB** — lecteur paginé avec réglage de la taille de police, mode nuit, barre de progression, swipe mobile et sauvegarde automatique de la position de lecture
-  - **CBZ / CBR** — galerie image avec navigation clavier et swipe, position mémorisée
+  - **PDF :** viewer natif du navigateur
+  - **EPUB :** lecteur paginé avec réglage de la taille de police, mode nuit, barre de progression, swipe mobile et sauvegarde automatique de la position de lecture
+  - **CBZ / CBR :** galerie image avec navigation clavier et swipe, position mémorisée
 - Bouton « Lire » disponible dans la bibliothèque, les demandes utilisateur et le panel admin
-- **Conversion de format au téléchargement** — modal dédié avec conversion à la volée :
-  - Ebooks (EPUB, MOBI, AZW3, FB2) : conversion via Calibre (`ebook-convert`), inclus dans l'image Docker — aucune configuration requise
+- **Conversion de format au téléchargement :** modal dédié avec conversion à la volée :
+  - Ebooks (EPUB, MOBI, AZW3, FB2) : conversion via Calibre (`ebook-convert`), inclus dans l'image Docker, aucune configuration requise
   - Comics/BD (CBZ) : conversion en PDF via JSZip + pdfkit, sans dépendance externe
   - Affichage du poids du fichier original et du fichier converti
   - Les fichiers convertis sont automatiquement supprimés après 24h
 
 **Découverte & IA**
 - Page Découverte (tendances, bestsellers, recommandations IA)
-- **EbookRequest AI** — chatbot intégré (icône flottante bas-droite) avec function calling :
+- **EbookRequest AI :** chatbot intégré (icône flottante bas-droite) avec function calling :
   - Consulter ses demandes, sa bibliothèque et ses statistiques de quota
   - Rechercher un livre (Google Books, avec repli Hardcover/Open Library) et soumettre une demande directement
   - Outils admin : demandes en attente et statistiques globales
   - Accès activé par utilisateur depuis le panel admin, quota journalier configurable par utilisateur (défaut : 10 messages/jour)
-  - Compatible OpenAI, Claude (Anthropic) et Ollama — utilise le même fournisseur IA que le reste de l'application
+  - Compatible OpenAI, Claude (Anthropic) et Ollama, utilise le même fournisseur IA que le reste de l'application
   - Non affiché si aucune clé API n'est configurée
 
 **Administration**
 - Panel admin avec statistiques et logs
 - Visionneuse de logs système en temps réel
-- **Recherche globale** (`⌘K` / `Ctrl+K` ou barre dans le menu) — résultats groupés par catégorie : demandes, bibliothèque, utilisateurs (admin)
+- **Recherche globale :** (`⌘K` / `Ctrl+K` ou barre dans le menu) résultats groupés par catégorie : demandes, bibliothèque, utilisateurs (admin)
 
 **Intégration (MCP)**
 - Serveur MCP pour gérer ses demandes directement depuis un assistant IA
@@ -145,7 +149,7 @@ La référence complète des endpoints REST avec exemples `curl` est disponible 
 ### Prérequis
 
 - Docker et Docker Compose
-- Une instance MongoDB — [MongoDB Atlas](https://www.mongodb.com/atlas) (cloud, gratuit en tier M0) ou une instance locale
+- Une instance MongoDB [MongoDB Atlas](https://www.mongodb.com/atlas) (cloud, gratuit en tier M0) ou une instance locale
 
 ### Image Docker
 
@@ -190,7 +194,7 @@ services:
 
 > Les variables d'environnement sont lues depuis le fichier `.env` placé au même niveau que `docker-compose.yml`.
 
-> **FlareSolverr** est inclus dans le `docker-compose.yml` et démarré automatiquement. Il est nécessaire pour contourner la protection Cloudflare d'Anna's Archive lors des téléchargements automatiques. Sans lui, le connecteur Anna's Archive ne fonctionnera pas. L'URL est préconfigurée à `http://flaresolverr:8191` — aucune configuration supplémentaire n'est requise si tu utilises le `docker-compose.yml` fourni.
+> **FlareSolverr** est inclus dans le `docker-compose.yml` et démarré automatiquement. Il est nécessaire pour contourner la protection Cloudflare d'Anna's Archive lors des téléchargements automatiques. Sans lui, le connecteur Anna's Archive ne fonctionnera pas. L'URL est préconfigurée à `http://flaresolverr:8191` aucune configuration supplémentaire n'est requise si tu utilises le `docker-compose.yml` fourni.
 
 ### Variables d'environnement
 
@@ -207,7 +211,7 @@ cp .env.example .env
 | `NODE_ENV` | `production` ou `development` |
 | `PORT` | Port du backend (défaut : `5001`) |
 | `MONGODB_URI` | URI de connexion MongoDB (Atlas ou local) |
-| `JWT_SECRET` | Clé secrète pour signer les tokens JWT — choisir une valeur longue et aléatoire |
+| `JWT_SECRET` | Clé secrète pour signer les tokens JWT, choisir une valeur longue et aléatoire |
 | `UPLOADS_PATH` | Chemin absolu du dossier de stockage des fichiers uploadés |
 
 #### URLs
@@ -215,18 +219,18 @@ cp .env.example .env
 | Variable | Description |
 |---|---|
 | `FRONTEND_URL` | URL publique de l'application (ex : `https://ebook.tondomaine.fr`). Utilisée pour les liens dans les emails (vérification, reset mot de passe, invitations) et la configuration CORS en production. **Obligatoire en production.** |
-| `VITE_API_URL` | URL du backend injectée dynamiquement au runtime via `/env.js` (ex : `https://api.tondomaine.fr`). Nécessaire uniquement si le frontend et le backend sont sur des domaines différents. En configuration standard (frontend servi par le backend sur le même domaine), laisser vide — les requêtes sont alors relatives (`/api/...`). **Note (migration depuis une version < 1.5.0) :** si vous buildiez manuellement sans Docker, renommez `REACT_APP_API_URL` en `VITE_API_URL` dans votre `frontend/.env`. |
+| `VITE_API_URL` | URL du backend injectée dynamiquement au runtime via `/env.js` (ex : `https://api.tondomaine.fr`). Nécessaire uniquement si le frontend et le backend sont sur des domaines différents. En configuration standard (frontend servi par le backend sur le même domaine), laisser vide les requêtes sont alors relatives (`/api/...`). **Note (migration depuis une version < 1.5.0) :** si vous buildiez manuellement sans Docker, renommez `REACT_APP_API_URL` en `VITE_API_URL` dans votre `frontend/.env`. |
 
 #### Email
 
-> **Optionnel depuis la 1.5.2** — configurable directement dans le panel admin (**Réglages → Fournisseur Email**). Les variables ci-dessous ne servent plus que de valeur de repli : au premier accès à cet onglet, si elles sont présentes, leur contenu est automatiquement importé en base (migration transparente, aucune ressaisie nécessaire).
+> **Optionnel depuis la 1.5.2 :** configurable directement dans le panel admin (**Réglages → Fournisseur Email**). Les variables ci-dessous ne servent plus que de valeur de repli : au premier accès à cet onglet, si elles sont présentes, leur contenu est automatiquement importé en base (migration transparente, aucune ressaisie nécessaire).
 
 | Variable | Description |
 |---|---|
 | `EMAIL_PROVIDER` | `smtp` (défaut) ou `resend` |
 | `SMTP_HOST` | Adresse du serveur SMTP (ex : `smtp.gmail.com`) |
-| `SMTP_PORT` | Port SMTP — `587` pour STARTTLS, `465` pour SSL/TLS |
-| `SMTP_SECURE` | `false` avec le port `587` (STARTTLS), `true` avec le port `465` (SSL) — **ne pas mélanger** |
+| `SMTP_PORT` | Port SMTP `587` pour STARTTLS, `465` pour SSL/TLS |
+| `SMTP_SECURE` | `false` avec le port `587` (STARTTLS), `true` avec le port `465` (SSL) **ne pas mélanger** |
 | `SMTP_USER` | Identifiant de connexion SMTP |
 | `SMTP_PASSWORD` | Mot de passe SMTP |
 | `EMAIL_FROM_ADDRESS` | Adresse expéditrice des emails |
@@ -248,7 +252,7 @@ npx web-push generate-vapid-keys
 
 #### Intelligence artificielle
 
-> **Optionnel depuis la 1.5.2** — configurable directement dans le panel admin (**Réglages → Fournisseur IA**), avec migration automatique des variables `.env` existantes au premier accès, comme pour l'email.
+> **Optionnel depuis la 1.5.2 :** configurable directement dans le panel admin (**Réglages → Fournisseur IA**), avec migration automatique des variables `.env` existantes au premier accès, comme pour l'email.
 
 | Variable | Description |
 |---|---|
@@ -258,24 +262,24 @@ npx web-push generate-vapid-keys
 | `OLLAMA_URL` | URL du serveur Ollama (si `AI_PROVIDER=ollama`, ex : `http://172.17.0.x:11434`) |
 | `OLLAMA_MODEL` | Nom du modèle Ollama |
 | `OLLAMA_TIMEOUT` | Timeout en ms pour les requêtes Ollama (défaut : `60000`) |
-| `ANTHROPIC_API_KEY` | Clé API Anthropic (si `AI_PROVIDER=claude`) — [console.anthropic.com](https://console.anthropic.com) |
+| `ANTHROPIC_API_KEY` | Clé API Anthropic (si `AI_PROVIDER=claude`) [console.anthropic.com](https://console.anthropic.com) |
 | `CLAUDE_MODEL` | Modèle Claude à utiliser (ex : `claude-opus-4-5`, `claude-sonnet-4-5`) |
 
 #### Connecteurs & services externes
 
-> `GOOGLE_BOOKS_API_KEY` et `RSS_FEED_URL` sont **optionnelles depuis la 1.5.2** — configurables dans **Réglages**, avec la même migration automatique depuis le `.env` que l'email et l'IA. **Hardcover** (repli entre Google Books et Open Library) n'a pas de variable d'environnement : clé API et activation se configurent uniquement depuis **Réglages** (désactivé par défaut).
+> `GOOGLE_BOOKS_API_KEY` et `RSS_FEED_URL` sont **optionnelles depuis la 1.5.2** configurables dans **Réglages**, avec la même migration automatique depuis le `.env` que l'email et l'IA. **Hardcover** (repli entre Google Books et Open Library) n'a pas de variable d'environnement : clé API et activation se configurent uniquement depuis **Réglages** (désactivé par défaut).
 
 | Variable | Description |
 |---|---|
 | `GOOGLE_BOOKS_API_KEY` | Clé API Google Books (recherche et métadonnées) |
-| `APPRISE_URL` | URL du service Apprise pour les notifications. Par défaut `http://apprise:8000` (conteneur inclus dans le `docker-compose.yml`). Supprimer le service `apprise` du compose si vous hébergez déjà Apprise ailleurs, et renseigner son URL ici. Ne pas ajouter `/notify` — le chemin est ajouté automatiquement. Voir [github.com/caronc/apprise-api](https://github.com/caronc/apprise-api). |
+| `APPRISE_URL` | URL du service Apprise pour les notifications. Par défaut `http://apprise:8000` (conteneur inclus dans le `docker-compose.yml`). Supprimer le service `apprise` du compose si vous hébergez déjà Apprise ailleurs, et renseigner son URL ici. Ne pas ajouter `/notify` le chemin est ajouté automatiquement. Voir [github.com/caronc/apprise-api](https://github.com/caronc/apprise-api). |
 | `APPRISE_CONFIG_PATH` | Chemin local vers le dossier de configuration Apprise (défaut : `./apprise-config`). Nécessaire si `APPRISE_STATEFUL_MODE=simple` est activé sur le conteneur Apprise. |
 | `TZ` | Fuseau horaire des conteneurs (ex : `Europe/Paris`). Utile pour que les logs s'affichent à la bonne heure. |
 | `FLARESOLVERR_URL` | URL du service FlareSolverr pour contourner les protections Cloudflare (défaut : `http://flaresolverr:8191`) |
 | `RSS_FEED_URL` | URL du flux RSS PreDB.me utilisé pour vérifier la disponibilité d'un livre à la soumission (défaut : `https://predb.me/?cats=books-ebooks&rss=1`). |
 | `MCP_PORT` | Port du serveur MCP (défaut : `3035`) |
-| `MCP_URL` | URL publique du serveur MCP (ex : `https://mcp.ndd.fr`). Affichée aux utilisateurs dans les paramètres. Optionnel — si absent, la section MCP est masquée. |
-| `MCP_INTERNAL_URL` | URL interne du serveur MCP pour le health check depuis le backend (défaut : `http://ebookrequest-mcp:3035`). Utile quand le backend et le MCP sont sur le même réseau Docker — évite de passer par l'URL publique. |
+| `MCP_URL` | URL publique du serveur MCP (ex : `https://mcp.ndd.fr`). Affichée aux utilisateurs dans les paramètres. Optionnel et si absent, la section MCP est masquée. |
+| `MCP_INTERNAL_URL` | URL interne du serveur MCP pour le health check depuis le backend (défaut : `http://ebookrequest-mcp:3035`). Utile quand le backend et le MCP sont sur le même réseau Docker, évite de passer par l'URL publique. |
 
 Le service `apprise` inclus dans le `docker-compose.yml` utilise une configuration de base. Voici les variables d'environnement utiles à ajouter directement sur le service `apprise` selon vos besoins :
 
@@ -305,9 +309,9 @@ apprise:
 
 #### Proxy sortant (optionnel)
 
-Si votre IP serveur est throttlée/bloquée par Google Books, Hardcover ou Open Library (rate-limit, IP d'hébergeur mutualisé déjà signalée), un proxy HTTP(S) sortant peut être configuré depuis **Réglages → Proxy sortant** dans le panel admin — pas de variable d'environnement, uniquement via l'interface. Deux modes disponibles :
-- **Repli** (par défaut) — connexion directe en priorité, proxy utilisé seulement en cas d'échec.
-- **Par défaut** — proxy en priorité, repli sur la connexion directe si le proxy échoue.
+Si votre IP serveur est throttlée/bloquée par Google Books, Hardcover ou Open Library (rate-limit, IP d'hébergeur mutualisé déjà signalée), un proxy HTTP(S) sortant peut être configuré depuis **Réglages → Proxy sortant** dans le panel admin pas de variable d'environnement, uniquement via l'interface. Deux modes disponibles :
+- **Repli :** (par défaut) connexion directe en priorité, proxy utilisé seulement en cas d'échec.
+- **Par défaut :** proxy en priorité, repli sur la connexion directe si le proxy échoue.
 
 Le proxy peut être un service tiers ou auto-hébergé (ex : Squid sur un serveur avec une IP résidentielle), avec authentification optionnelle (utilisateur/mot de passe).
 
@@ -327,7 +331,7 @@ Pense à renseigner `FRONTEND_URL` avec ton URL publique pour que les liens dans
 
 ### Créer le compte administrateur
 
-Au premier lancement, ouvre l'application dans ton navigateur — tu seras redirigé automatiquement vers la page `/setup` pour créer le compte administrateur.
+Au premier lancement, ouvre l'application dans ton navigateur tu seras redirigé automatiquement vers la page `/setup` pour créer le compte administrateur.
 
 ### Mise à jour
 

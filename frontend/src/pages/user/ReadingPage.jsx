@@ -5,6 +5,7 @@ import styles from './ReadingPage.module.css';
 import GoogleBooksSearch from '../../components/GoogleBooksSearch';
 import BookReaderModal from '../../components/BookReaderModal';
 import DownloadModal from '../../components/DownloadModal';
+import hardcoverLogo from '../../assets/icons/hardcover.png';
 
 const READABLE_EXTS = ['pdf', 'epub', 'cbz', 'cbr'];
 function isReadable(filePath) {
@@ -84,6 +85,8 @@ export default function ReadingPage() {
   const [addError, setAddError]     = useState('');
   const [readerBook, setReaderBook] = useState(null);
   const [editingNote, setEditingNote] = useState(null); // { id, text }
+  const [hardcoverAlert, setHardcoverAlert] = useState(null);
+  const hardcoverAlertTimeoutRef = useRef(null);
   const [filterFormat, setFilterFormat] = useState('all');
   const filterBarRef = useRef(null);
 
@@ -127,18 +130,28 @@ export default function ReadingPage() {
     }
   };
 
+  const notifyHardcoverSync = (data) => {
+    if (data?._hardcoverSync && !data._hardcoverSync.success) {
+      setHardcoverAlert(`Synchro Hardcover échouée : ${data._hardcoverSync.error || 'erreur inconnue'}`);
+      clearTimeout(hardcoverAlertTimeoutRef.current);
+      hardcoverAlertTimeoutRef.current = setTimeout(() => setHardcoverAlert(null), 6000);
+    }
+  };
+
   const toggleStatus = async (book) => {
     const newStatus = book.status === 'read' ? 'unread' : 'read';
     try {
-      await axiosAdmin.put(`/api/reading/${book._id}`, { status: newStatus });
-      setBooks(prev => prev.map(b => b._id === book._id ? { ...b, status: newStatus } : b));
+      const res = await axiosAdmin.put(`/api/reading/${book._id}`, { status: newStatus });
+      setBooks(prev => prev.map(b => b._id === book._id ? { ...b, status: newStatus, hardcoverSync: res.data.hardcoverSync } : b));
+      notifyHardcoverSync(res.data);
     } catch { toast.error('Erreur lors de la mise à jour'); }
   };
 
   const handleRate = async (bookId, rating) => {
     try {
-      await axiosAdmin.put(`/api/reading/${bookId}`, { rating });
-      setBooks(prev => prev.map(b => b._id === bookId ? { ...b, rating } : b));
+      const res = await axiosAdmin.put(`/api/reading/${bookId}`, { rating });
+      setBooks(prev => prev.map(b => b._id === bookId ? { ...b, rating, hardcoverSync: res.data.hardcoverSync } : b));
+      notifyHardcoverSync(res.data);
     } catch { toast.error('Erreur lors de la notation'); }
   };
 
@@ -339,6 +352,15 @@ export default function ReadingPage() {
         </div>
       )}
 
+      {hardcoverAlert && (
+        <div className={styles.addErrorMsg} onClick={() => setHardcoverAlert(null)} style={{ cursor: 'pointer' }} title="Cliquer pour fermer">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          {hardcoverAlert}
+        </div>
+      )}
+
       {/* Liste */}
       {loading ? (
         <div className={styles.empty}>Chargement...</div>
@@ -361,10 +383,28 @@ export default function ReadingPage() {
                 <div className={styles.bookTitle}>{book.title}</div>
                 <div className={styles.bookAuthor}>{book.author}</div>
                 <div className={styles.bookMeta}>
-                  {book.source === 'request'
-                    ? <span className={styles.sourceBadge}>Demande</span>
-                    : <span className={`${styles.sourceBadge} ${styles.sourceBadgeManual}`}>Manuel</span>
-                  }
+                  {book.source === 'request' ? (
+                    <span className={styles.sourceBadge}>Demande</span>
+                  ) : book.importedFrom === 'hardcover' ? (
+                    <span className={`${styles.sourceBadge} ${styles.sourceBadgeManual}`} title="Importé depuis Hardcover">Hardcover</span>
+                  ) : (
+                    <span className={`${styles.sourceBadge} ${styles.sourceBadgeManual}`}>Manuel</span>
+                  )}
+                  {book.hardcoverSync?.status && (
+                    <span
+                      className={styles.hardcoverSyncBadge}
+                      title={book.hardcoverSync.status === 'synced'
+                        ? 'Synchronisé avec Hardcover'
+                        : `Échec de synchro Hardcover : ${book.hardcoverSync.error || 'erreur inconnue'}`}
+                    >
+                      <img src={hardcoverLogo} alt="" />
+                      {book.hardcoverSync.status === 'synced' ? (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      ) : (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      )}
+                    </span>
+                  )}
                   <StarRating rating={book.rating || 0} bookId={book._id} onRate={handleRate} />
                 </div>
                 {/* Progression EPUB */}

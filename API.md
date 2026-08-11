@@ -362,6 +362,43 @@ curl -X POST https://app.ndd.fr/api/users/calibre/sync \
   -H "Authorization: Bearer <token>"
 ```
 
+### `GET /api/users/hardcover`
+Config personnelle de synchro bibliothèque (clé API, distincte de celle des Réglages admin).
+```bash
+curl https://app.ndd.fr/api/users/hardcover \
+  -H "Authorization: Bearer <token>"
+```
+
+### `PUT /api/users/hardcover`
+```bash
+curl -X PUT https://app.ndd.fr/api/users/hardcover \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "apiKey": "hc_..."}'
+```
+
+### `POST /api/users/hardcover/test`
+```bash
+curl -X POST https://app.ndd.fr/api/users/hardcover/test \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"apiKey": "hc_..."}'
+```
+
+### `POST /api/users/hardcover/sync-now`
+Lance en arrière-plan une resynchronisation de tous les livres ajoutés/modifiés depuis la dernière tentative (retente aussi ceux en erreur).
+```bash
+curl -X POST https://app.ndd.fr/api/users/hardcover/sync-now \
+  -H "Authorization: Bearer <token>"
+```
+
+### `POST /api/users/hardcover/import`
+Importe la bibliothèque Hardcover existante — n'ajoute que les livres absents côté EbookRequest.
+```bash
+curl -X POST https://app.ndd.fr/api/users/hardcover/import \
+  -H "Authorization: Bearer <token>"
+```
+
 ---
 
 ## Apprise

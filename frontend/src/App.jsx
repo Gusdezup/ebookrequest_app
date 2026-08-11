@@ -1,8 +1,6 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { getAvatarColor } from './utils/avatarColor';
-import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import UserForm from './pages/user/UserForm';
 import UserDashboard from './pages/user/UserDashboard';
 import NotificationBell from './components/NotificationBell';

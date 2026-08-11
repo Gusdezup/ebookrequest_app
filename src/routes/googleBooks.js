@@ -252,6 +252,8 @@ function normalizeHardcoverDocument(doc) {
       previewLink:   doc.slug ? `https://hardcover.app/books/${doc.slug}` : '',
       infoLink:      doc.slug ? `https://hardcover.app/books/${doc.slug}` : '',
       seriesInfo:    null,
+      communityRating:      doc.rating || null,
+      communityRatingsCount: doc.ratings_count || null,
     },
   };
 }
@@ -418,6 +420,8 @@ function formatPool(items) {
         previewLink: book.volumeInfo.previewLink || '',
         infoLink:    book.volumeInfo.infoLink    || '',
         seriesInfo:  book.volumeInfo.seriesInfo  || null,
+        communityRating:       book.volumeInfo.communityRating       || null,
+        communityRatingsCount: book.volumeInfo.communityRatingsCount || null,
       }
     };
   });

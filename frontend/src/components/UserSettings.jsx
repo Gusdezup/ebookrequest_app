@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 import { compressImage } from '../utils/imageCompressor';
 import { subscribeToPush, unsubscribeFromPush, isPushSubscribed } from '../serviceWorkerRegistration';
 import TwoFactorSetup from './TwoFactorSetup';
+import hardcoverLogo from '../assets/icons/hardcover.png';
 import { startRegistration } from '@simplewebauthn/browser';
 
 import { getAvatarColor } from '../utils/avatarColor';
@@ -95,6 +96,12 @@ const UserSettings = () => {
   const [calibreSyncing, setCalibreSyncing] = useState(false);
   const [calibreSyncResult, setCalibreSyncResult] = useState(null);
 
+  const [hardcover, setHardcover] = useState({ enabled: false, apiKey: '', hasApiKey: false, keyUpdatedAt: null });
+  const [hardcoverSaving, setHardcoverSaving] = useState(false);
+  const [hardcoverTesting, setHardcoverTesting] = useState(false);
+  const [hardcoverSyncing, setHardcoverSyncing] = useState(false);
+  const [hardcoverImporting, setHardcoverImporting] = useState(false);
+  const [hardcoverTestResult, setHardcoverTestResult] = useState(null);
   const [valentine, setValentine] = useState({ username: '', password: '', hasPassword: false });
   const [valentineSaving, setValentineSaving] = useState(false);
   const [valentineTesting, setValentineTesting] = useState(false);
@@ -185,6 +192,12 @@ const UserSettings = () => {
         }
       } catch { /* silencieux */ }
     };
+    const fetchHardcoverConfig = async () => {
+      try {
+        const res = await axiosAdmin.get('/api/users/hardcover');
+        setHardcover({ enabled: res.data.enabled ?? false, apiKey: '', hasApiKey: res.data._hasApiKey ?? false, keyUpdatedAt: res.data._keyUpdatedAt || null });
+      } catch { /* silencieux */ }
+    };
     const fetchMcpInfo = async () => {
       try {
         const res = await axiosAdmin.get('/api/mcp/info');
@@ -208,6 +221,7 @@ const UserSettings = () => {
     fetchCalibreConfig();
     fetchAppriseStatus();
     fetchValentineConfig();
+    fetchHardcoverConfig();
     fetchMcpInfo();
     fetchPasskeys();
     fetchSessions();
@@ -447,6 +461,78 @@ const UserSettings = () => {
       setCalibreSyncResult({ error: err.response?.data?.error || err.message });
     } finally {
       setCalibreSyncing(false);
+    }
+  };
+
+  const handleHardcoverSave = async () => {
+    setHardcoverSaving(true);
+    setHardcoverTestResult(null);
+    try {
+      const res = await axiosAdmin.put('/api/users/hardcover', {
+        enabled: hardcover.enabled,
+        apiKey: hardcover.apiKey,
+        _hasApiKey: hardcover.hasApiKey,
+      });
+      setHardcover({ enabled: res.data.enabled, apiKey: '', hasApiKey: res.data._hasApiKey, keyUpdatedAt: res.data._keyUpdatedAt || null });
+      toast.success('Configuration Hardcover enregistrée');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Erreur lors de la sauvegarde');
+    } finally {
+      setHardcoverSaving(false);
+    }
+  };
+
+  const handleHardcoverToggle = async (e) => {
+    const enabled = e.target.checked;
+    setHardcover(p => ({ ...p, enabled }));
+    try {
+      // Uniquement { enabled } — ne jamais envoyer apiKey/_hasApiKey ici pour ne pas
+      // risquer d'effacer une clé déjà enregistrée si l'état local n'est pas encore à jour.
+      const res = await axiosAdmin.put('/api/users/hardcover', { enabled });
+      setHardcover(p => ({ ...p, enabled: res.data.enabled }));
+    } catch (err) {
+      setHardcover(p => ({ ...p, enabled: !enabled }));
+      toast.error(err.response?.data?.error || 'Erreur lors de la sauvegarde');
+    }
+  };
+
+  const handleHardcoverTest = async () => {
+    setHardcoverTesting(true);
+    setHardcoverTestResult(null);
+    try {
+      const res = await axiosAdmin.post('/api/users/hardcover/test', { apiKey: hardcover.apiKey || '••••••••' });
+      setHardcoverTestResult({ type: 'success', message: res.data.message || 'Clé valide !' });
+    } catch (err) {
+      setHardcoverTestResult({ type: 'error', message: err.response?.data?.error || 'Clé invalide' });
+    } finally {
+      setHardcoverTesting(false);
+    }
+  };
+
+  const handleHardcoverSyncNow = async () => {
+    setHardcoverSyncing(true);
+    setHardcoverTestResult(null);
+    try {
+      const res = await axiosAdmin.post('/api/users/hardcover/sync-now');
+      setHardcoverTestResult({ type: 'success', message: res.data.message || 'Synchronisation lancée' });
+    } catch (err) {
+      setHardcoverTestResult({ type: 'error', message: err.response?.data?.error || 'Erreur lors du lancement de la synchro' });
+    } finally {
+      setHardcoverSyncing(false);
+    }
+  };
+
+  const handleHardcoverImport = async () => {
+    if (!window.confirm('Importer votre bibliothèque Hardcover existante ? Seuls les livres absents de votre bibliothèque EbookRequest seront ajoutés — rien de déjà présent ne sera modifié.')) return;
+    setHardcoverImporting(true);
+    setHardcoverTestResult(null);
+    try {
+      const res = await axiosAdmin.post('/api/users/hardcover/import');
+      setHardcoverTestResult({ type: 'success', message: res.data.message || 'Import terminé' });
+    } catch (err) {
+      setHardcoverTestResult({ type: 'error', message: err.response?.data?.error || 'Erreur lors de l\'import' });
+    } finally {
+      setHardcoverImporting(false);
     }
   };
 
@@ -1271,6 +1357,87 @@ const UserSettings = () => {
           );
         })()}
 
+        {/* ── Hardcover (synchro bibliothèque perso) ── */}
+        <div className={styles.settingsCard}>
+          <h2 className={styles.sectionTitle}>
+            <img src={hardcoverLogo} alt="" className={styles.sectionTitleLogo} style={{ height: '14px', width: '14px', objectFit: 'contain' }} />
+            Synchro Hardcover
+          </h2>
+          <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 1rem' }}>
+            Renseignez votre clé API personnelle <a href="https://hardcover.app/account/api" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)' }}>hardcover.app</a> pour pousser automatiquement le statut de lecture et vos notes vers votre bibliothèque Hardcover.
+          </p>
+          {hardcover.hasApiKey && hardcover.keyUpdatedAt && (
+            <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              Les clés Hardcover expirent après 1 an et sont réinitialisées chaque 1er janvier — pensez à la renouveler sur hardcover.app (dernier enregistrement : {new Date(hardcover.keyUpdatedAt).toLocaleDateString('fr-FR')}).
+            </p>
+          )}
+          <div className={styles.toggleRow} style={{ marginBottom: '0.75rem' }}>
+            <div className={styles.toggleInfo}>
+              <div>
+                <p className={styles.toggleLabel}>Activer la synchro</p>
+                <p className={styles.toggleDesc}>À chaque changement de statut (lu/non lu) ou de note dans votre bibliothèque EbookRequest.</p>
+              </div>
+            </div>
+            <label className={styles.switch}>
+              <input
+                type="checkbox"
+                checked={hardcover.enabled}
+                onChange={handleHardcoverToggle}
+              />
+              <span className={styles.slider} />
+            </label>
+          </div>
+          <div className={styles.fieldRow}>
+            <label className={styles.fieldLabel}>Clé API Hardcover</label>
+            <input
+              type="password"
+              className={styles.fieldInput}
+              autoComplete="off"
+              value={hardcover.apiKey}
+              onChange={e => { setHardcover(p => ({ ...p, apiKey: e.target.value })); setHardcoverTestResult(null); }}
+              placeholder={hardcover.hasApiKey ? '••••••••' : 'Votre clé API Hardcover'}
+            />
+          </div>
+          <div className={styles.cardActions}>
+            {(hardcover.apiKey || hardcover.hasApiKey) && (
+              <button type="button" className={styles.btnOutline} onClick={handleHardcoverTest} disabled={hardcoverTesting}>
+                {hardcoverTesting ? 'Test en cours…' : 'Tester la connexion'}
+              </button>
+            )}
+            <button type="button" className={styles.btnPrimary} onClick={handleHardcoverSave} disabled={hardcoverSaving}>
+              {hardcoverSaving ? 'Enregistrement…' : 'Sauvegarder'}
+            </button>
+          </div>
+          {hardcoverTestResult && (
+            <div className={`${styles.alert} ${hardcoverTestResult.type === 'success' ? styles.alertSuccess : styles.alertError}`}>
+              {hardcoverTestResult.type === 'success'
+                ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              }
+              {hardcoverTestResult.message}
+            </div>
+          )}
+
+          {hardcover.enabled && hardcover.hasApiKey && (
+            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border)' }}>
+              <p style={{ fontSize: '0.83rem', color: 'var(--color-text-muted)', marginBottom: '0.6rem' }}>
+                Forcer une synchronisation immédiate, ou importer les livres déjà présents dans votre bibliothèque Hardcover.
+              </p>
+              <div className={styles.secondaryActions}>
+                <button type="button" className={styles.btnOutline} onClick={handleHardcoverSyncNow} disabled={hardcoverSyncing}>
+                  {hardcoverSyncing ? 'Lancement…' : 'Synchroniser maintenant'}
+                </button>
+                <button type="button" className={styles.btnOutline} onClick={handleHardcoverImport} disabled={hardcoverImporting}>
+                  {hardcoverImporting ? 'Import…' : 'Importer depuis Hardcover'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── Calibre-Web ── */}
         <div className={styles.settingsCard}>
           <h2 className={styles.sectionTitle}>
@@ -1402,9 +1569,11 @@ const UserSettings = () => {
                   'Envoyer les livres déjà complétés (non encore synchronisés) vers Calibre-Web.'
                 )}
               </p>
-              <button type="button" className={styles.btnOutline} onClick={handleCalibreSync} disabled={calibreSyncing}>
-                {calibreSyncing ? 'Synchronisation…' : 'Synchroniser les livres existants'}
-              </button>
+              <div className={styles.secondaryActions}>
+                <button type="button" className={styles.btnOutline} onClick={handleCalibreSync} disabled={calibreSyncing}>
+                  {calibreSyncing ? 'Synchronisation…' : 'Synchroniser les livres existants'}
+                </button>
+              </div>
               {calibreSyncResult && (
                 <p style={{ marginTop: '0.5rem', fontSize: '0.83rem', color: calibreSyncResult.error ? 'var(--color-danger)' : 'var(--color-success)' }}>
                   {calibreSyncResult.error

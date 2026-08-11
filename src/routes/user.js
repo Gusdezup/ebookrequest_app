@@ -276,4 +276,116 @@ router.post('/valentine/test', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/users/hardcover
+router.get('/hardcover', requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('hardcover');
+    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    res.json({
+      enabled: user.hardcover?.enabled ?? false,
+      apiKey: user.hardcover?.apiKey ? '••••••••' : '',
+      _hasApiKey: !!user.hardcover?.apiKey,
+      _keyUpdatedAt: user.hardcover?.apiKey ? user.hardcover?.apiKeySavedAt : null,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// PUT /api/users/hardcover
+router.put('/hardcover', requireAuth, async (req, res) => {
+  try {
+    const { enabled, apiKey, _hasApiKey } = req.body;
+    const updates = { 'hardcover.enabled': !!enabled };
+
+    // apiKey n'est touchée que si le champ est explicitement présent dans la requête
+    // (le toggle "activer" seul n'envoie que { enabled }, pour ne jamais risquer
+    // d'effacer une clé déjà enregistrée par erreur d'état côté front).
+    if (apiKey !== undefined) {
+      if (apiKey && apiKey !== '••••••••') {
+        updates['hardcover.apiKey'] = encrypt(apiKey);
+        updates['hardcover.apiKeySavedAt'] = new Date();
+      } else if (!apiKey && !_hasApiKey) {
+        updates['hardcover.apiKey'] = '';
+        updates['hardcover.apiKeySavedAt'] = null;
+      }
+    }
+
+    const user = await User.findByIdAndUpdate(req.user.id, { $set: updates }, { new: true }).select('hardcover');
+    res.json({
+      enabled: user.hardcover?.enabled ?? false,
+      apiKey: user.hardcover?.apiKey ? '••••••••' : '',
+      _hasApiKey: !!user.hardcover?.apiKey,
+      _keyUpdatedAt: user.hardcover?.apiKey ? user.hardcover?.apiKeySavedAt : null,
+    });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// POST /api/users/hardcover/test
+router.post('/hardcover/test', requireAuth, async (req, res) => {
+  try {
+    let { apiKey } = req.body;
+    if (!apiKey || apiKey === '••••••••') {
+      const user = await User.findById(req.user.id).select('hardcover');
+      const raw = user?.hardcover?.apiKey || '';
+      apiKey = decrypt(raw) ?? raw;
+    }
+    if (!apiKey) return res.status(400).json({ error: 'Clé API non renseignée' });
+
+    const response = await fetch('https://api.hardcover.app/v1/graphql', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ query: '{ me { username } }' }),
+    });
+    const data = await response.json();
+    if (!response.ok || data?.errors) {
+      const reason = data?.errors?.[0]?.message || `HTTP ${response.status}`;
+      return res.status(400).json({ error: reason });
+    }
+    res.json({ success: true, message: 'Clé Hardcover valide' });
+  } catch (err) {
+    res.status(500).json({ error: `Test impossible : ${err.message || 'Erreur inconnue'}` });
+  }
+});
+
+// POST /api/users/hardcover/sync-now
+router.post('/hardcover/sync-now', requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('_id username hardcover');
+    if (!user?.hardcover?.enabled || !user?.hardcover?.apiKey) {
+      return res.status(400).json({ error: 'Synchro Hardcover non activée' });
+    }
+    // Peut prendre plusieurs minutes sur une grosse bibliothèque (rate-limit Hardcover
+    // respecté par hardcoverSyncService) — on répond tout de suite, ça tourne en fond.
+    const { syncUserLibrary } = await import('../services/hardcoverSyncCron.js');
+    syncUserLibrary(user, { force: true }).catch(err => {
+      console.warn(`[HardcoverSync] Échec synchro manuelle pour ${user.username}:`, err.message);
+    });
+    res.json({ success: true, message: 'Synchronisation lancée en arrière-plan — ça peut prendre quelques minutes.' });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// POST /api/users/hardcover/import
+router.post('/hardcover/import', requireAuth, async (req, res) => {
+  try {
+    const { importHardcoverLibrary } = await import('../services/hardcoverSyncService.js');
+    const result = await importHardcoverLibrary(req.user.id);
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json({
+      success: true,
+      message: `${result.imported} livre(s) importé(s), ${result.skipped} déjà présent(s) dans votre bibliothèque.`,
+      ...result,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Erreur lors de l\'import' });
+  }
+});
+
 export default router;
