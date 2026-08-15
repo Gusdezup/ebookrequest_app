@@ -45,6 +45,42 @@
   color: var(--color-text-muted);
 }
 
+.searchPathClearBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: none;
+  border: 1px solid rgba(99,102,241,0.4);
+  color: #6366f1;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.searchPathClearBtn:hover:not(:disabled) {
+  background: rgba(99,102,241,0.08);
+  border-color: #6366f1;
+}
+
+.searchPathClearBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.searchPathClearSuccess {
+  font-size: 0.78rem;
+  color: #10b981;
+}
+
+.searchPathClearError {
+  font-size: 0.78rem;
+  color: #ef4444;
+}
+
 /* ── Card ── */
 .card {
   background: var(--color-bg2);

@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import ConnectorSettings from '../models/ConnectorSettings.js';
+import AdminLog from '../models/AdminLog.js';
 import BookRequest from '../models/BookRequest.js';
 import DownloadLog from '../models/DownloadLog.js';
 import User from '../models/User.js';
@@ -43,6 +44,23 @@ async function triggerKindleIfEnabled(bookRequestLean) {
 }
 
 const router = express.Router();
+
+// Journalise un changement de toggle "activer" dans Réglages (visible dans Logs Admin)
+// Le JWT ne porte pas `username` (seulement id/role/sid) — il faut le résoudre en base,
+// comme le fait déjà logAdminAction() dans bookRequestController.js.
+async function logSettingsToggle(req, serviceLabel, enabled) {
+  try {
+    const admin = await User.findById(req.user.id).select('username').lean();
+    await AdminLog.create({
+      admin: req.user.id,
+      adminUsername: admin?.username || 'admin',
+      action: 'settings_change',
+      details: `${serviceLabel} ${enabled ? 'activé' : 'désactivé'}`,
+    });
+  } catch (err) {
+    console.error('[AdminLog] Erreur log settings_change:', err.message);
+  }
+}
 
 // ── GET /api/connectors/valentine/next-scan ───────────────────────────────────
 router.get('/valentine/next-scan', requireAuth, requireAdmin, (req, res) => {
@@ -278,6 +296,7 @@ router.put('/googlebooks', requireAuth, requireAdmin, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     invalidateGoogleBooksKeyCache();
+    if (enabled !== undefined) logSettingsToggle(req, 'Google Books', doc.enabled);
 
     res.json({
       enabled: doc.enabled,
@@ -370,6 +389,7 @@ router.put('/hardcover', requireAuth, requireAdmin, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     invalidateHardcoverKeyCache();
+    if (enabled !== undefined) logSettingsToggle(req, 'Hardcover', doc.enabled);
 
     res.json({
       enabled: doc.enabled,
@@ -491,6 +511,7 @@ router.put('/aiprovider', requireAuth, requireAdmin, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     invalidateAIProviderConfigCache();
+    if (enabled !== undefined) logSettingsToggle(req, 'Fournisseur IA', doc.enabled);
 
     res.json({
       enabled: doc.enabled,
@@ -571,6 +592,7 @@ router.put('/rss', requireAuth, requireAdmin, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     invalidateRSSUrlCache();
+    if (enabled !== undefined) logSettingsToggle(req, 'Flux RSS', doc.enabled);
     res.json({ enabled: doc.enabled, url: doc.url || '' });
   } catch {
     res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
@@ -667,6 +689,7 @@ router.put('/proxy', requireAuth, requireAdmin, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     invalidateProxyConfigCache();
+    if (enabled !== undefined) logSettingsToggle(req, 'Proxy sortant', doc.enabled);
 
     res.json({
       enabled: doc.enabled,
@@ -800,6 +823,7 @@ router.put('/emailprovider', requireAuth, requireAdmin, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     invalidateEmailConfigCache();
+    if (enabled !== undefined) logSettingsToggle(req, 'Fournisseur Email', doc.enabled);
 
     res.json({
       enabled: doc.enabled,

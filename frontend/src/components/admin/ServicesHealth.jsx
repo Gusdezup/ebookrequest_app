@@ -240,6 +240,27 @@ const ServicesHealth = () => {
 
   const services = health?.services || {};
 
+  // Chemin de recherche réellement observé lors de ce check (pas juste ce qui est
+  // configuré) : combine activation ET connectivité, pour repérer un maillon activé
+  // mais en échec (ex. clé invalide, quota épuisé) sans avoir à comparer deux pages.
+  const searchPathSteps = [];
+  if (services.googleBooks) {
+    searchPathSteps.push({
+      name: 'Google Books',
+      state: !services.googleBooks.enabled ? 'off' : services.googleBooks.connected ? 'ok' : 'error',
+    });
+  }
+  if (services.hardcover) {
+    searchPathSteps.push({
+      name: 'Hardcover',
+      state: !services.hardcover.enabled ? 'off' : services.hardcover.connected ? 'ok' : 'error',
+    });
+  }
+  searchPathSteps.push({ name: 'Open Library', state: 'ok' }); // toujours disponible, pas de toggle
+
+  const proxy = services.proxy;
+  const proxyState = !proxy?.enabled ? null : proxy.connected ? 'ok' : 'error';
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -262,6 +283,40 @@ const ServicesHealth = () => {
           </svg>
         </button>
       </div>
+
+      {(services.googleBooks || services.hardcover) && (
+        <div className={styles.searchPathBanner}>
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M5 12h14M13 6l6 6-6 6"/>
+          </svg>
+          <span>
+            <strong>Chemin de recherche observé :</strong>{' '}
+            {searchPathSteps.map((step, i) => (
+              <React.Fragment key={step.name}>
+                {i > 0 && ' → '}
+                <span
+                  className={
+                    step.state === 'off' ? styles.searchPathStepOff
+                    : step.state === 'error' ? styles.searchPathStepError
+                    : styles.searchPathStepOk
+                  }
+                  title={step.state === 'off' ? 'Désactivé' : step.state === 'error' ? 'Activé mais en échec' : 'Actif'}
+                >
+                  {step.name}
+                </span>
+              </React.Fragment>
+            ))}
+            {proxyState && (
+              <span
+                className={proxyState === 'ok' ? styles.searchPathProxyOk : styles.searchPathProxyError}
+                title={proxyState === 'ok' ? `Proxy sortant actif et joignable (mode ${proxy.mode === 'default' ? 'par défaut' : 'repli'})` : 'Proxy sortant activé mais injoignable — retry en connexion directe utilisé à la place'}
+              >
+                {' '}· proxy sortant {proxyState === 'ok' ? 'actif' : 'en échec'}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       <div className={styles.grid}>
         <div className={styles.card}>

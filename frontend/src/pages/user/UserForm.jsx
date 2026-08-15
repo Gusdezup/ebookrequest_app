@@ -745,7 +745,7 @@ function UserForm() {
 
       {/* GoogleBooksSearch toujours monté pour préserver les résultats */}
       <div style={{ display: searchMode === 'google' && !selectedBook ? 'block' : 'none' }}>
-        <GoogleBooksSearch onSelectBook={handleBookSelect} onBatchSelectBooks={handleBatchSelectBooks} batchSubmitting={isSubmitting} batchProgress={batchProgress} />
+        <GoogleBooksSearch onSelectBook={handleBookSelect} onBatchSelectBooks={handleBatchSelectBooks} batchSubmitting={isSubmitting} batchProgress={batchProgress} onSwitchToManual={() => setSearchMode('manual')} />
       </div>
 
       {searchMode === 'google' && selectedBook && (

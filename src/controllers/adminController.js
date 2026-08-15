@@ -10,7 +10,7 @@ import { getValentineQuota, getValentineCircuitStatus } from '../services/valent
 import { pingAnnasArchive, getAnnasArchiveConfig } from '../services/annasArchiveService.js';
 import { testCalibreConnection } from '../services/calibreService.js';
 import { decrypt } from '../services/cryptoService.js';
-import { getGoogleBooksApiKey } from '../services/googleBooksConfig.js';
+import { getGoogleBooksApiKey, isGoogleBooksSearchEnabled } from '../services/googleBooksConfig.js';
 import { getHardcoverApiKey, getHardcoverQuotaStatus } from '../services/hardcoverConfig.js';
 import { getProxyConfig, getProxyAgent } from '../services/proxyConfig.js';
 
@@ -69,8 +69,14 @@ async function checkAnnasArchiveConnector() {
 }
 
 async function checkGoogleBooks() {
+  // `enabled` doit refléter isGoogleBooksSearchEnabled() (ce qui gouverne réellement
+  // /api/books/search), pas seulement "une clé API est disponible" — getGoogleBooksApiKey()
+  // retombe sur GOOGLE_BOOKS_API_KEY (.env) même quand le toggle admin est désactivé,
+  // ce qui faisait afficher Google Books comme actif/connecté dans Santé des services
+  // alors que la recherche l'ignorait complètement.
+  const searchEnabled = await isGoogleBooksSearchEnabled();
   const apiKey = await getGoogleBooksApiKey();
-  if (!apiKey) return { enabled: false, connected: false, error: null };
+  if (!apiKey) return { enabled: searchEnabled, connected: false, error: null };
   try {
     let res;
     const maxAttempts = 3;
@@ -85,16 +91,16 @@ async function checkGoogleBooks() {
     }
     if (res.status === 200) {
       return {
-        enabled: true,
+        enabled: searchEnabled,
         connected: true,
         error: null,
         totalItems: res.data?.totalItems ?? null,
       };
     }
     const reason = res.data?.error?.errors?.[0]?.reason || res.data?.error?.status || `HTTP ${res.status}`;
-    return { enabled: true, connected: false, error: reason };
+    return { enabled: searchEnabled, connected: false, error: reason };
   } catch (err) {
-    return { enabled: true, connected: false, error: err.message };
+    return { enabled: searchEnabled, connected: false, error: err.message };
   }
 }
 

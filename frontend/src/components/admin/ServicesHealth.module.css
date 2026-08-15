@@ -30,6 +30,55 @@
   color: var(--color-text-muted);
 }
 
+.searchPathBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.25);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.searchPathBanner svg {
+  color: #6366f1;
+  margin-top: 0.1rem;
+}
+
+.searchPathStepOk {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.searchPathStepError {
+  color: #ef4444;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: rgba(239,68,68,0.5);
+}
+
+.searchPathStepOff {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.searchPathProxyOk {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.searchPathProxyError {
+  color: #ef4444;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .refreshBtn {
   display: flex;
   align-items: center;

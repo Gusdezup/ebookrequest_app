@@ -16,10 +16,18 @@ const LoadingSpinner = () => (
   </div>
 );
 
-const NoResults = ({ query }) => (
+const NoResults = ({ query, onSwitchToManual }) => (
   <div className={styles.noResults}>
     <p>Aucun résultat trouvé pour "{query}"</p>
     <p>Essayez avec des termes de recherche différents.</p>
+    {onSwitchToManual && (
+      <p className={styles.noResultsManual}>
+        Toujours rien ?{' '}
+        <button type="button" className={styles.noResultsManualBtn} onClick={onSwitchToManual}>
+          Ajoutez le livre manuellement
+        </button>.
+      </p>
+    )}
   </div>
 );
 
@@ -75,7 +83,7 @@ const PLACEHOLDERS = {
   series: 'Nom de la série…',
 };
 
-const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting = false, batchProgress = null }) => {
+const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting = false, batchProgress = null, onSwitchToManual }) => {
   const [searchMode, setSearchMode]   = useState('title');
   const [value, setValue]             = useState('');
   const [scanning, setScanning]       = useState(false);
@@ -468,7 +476,7 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
             )}
           </>
         ) : showNoResults ? (
-          <NoResults query={searchedValue} />
+          <NoResults query={searchedValue} onSwitchToManual={onSwitchToManual} />
         ) : null}
       </div>
     </div>

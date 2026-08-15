@@ -1172,6 +1172,8 @@ function EmailProviderCard() {
 
 function SearchPathBanner() {
   const [state, setState] = useState(null); // { googleEnabled, hardcoverEnabled, proxyEnabled, proxyMode }
+  const [clearing, setClearing] = useState(false);
+  const [clearMsg, setClearMsg] = useState(null);
 
   useEffect(() => {
     const fetchState = () => {
@@ -1200,16 +1202,39 @@ function SearchPathBanner() {
   if (state.hardcoverEnabled) steps.push('Hardcover');
   steps.push('Open Library'); // toujours disponible, pas de toggle
 
+  const handleClearCache = async () => {
+    setClearing(true);
+    setClearMsg(null);
+    try {
+      const res = await axiosAdmin.post('/api/admin/search-cache/clear');
+      setClearMsg({ type: 'success', text: `Cache vidé (${res.data.cleared} entrée${res.data.cleared > 1 ? 's' : ''}).` });
+    } catch {
+      setClearMsg({ type: 'error', text: 'Erreur lors du vidage.' });
+    } finally {
+      setClearing(false);
+      setTimeout(() => setClearMsg(null), 5000);
+    }
+  };
+
   return (
     <div className={styles.searchPathBanner}>
       <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
         <path d="M5 12h14M13 6l6 6-6 6"/>
       </svg>
-      <span>
+      <span style={{ flex: 1 }}>
         <strong>Ordre de recherche actuel :</strong> {steps.join(' → ')}
         {state.proxyEnabled && (
           <span className={styles.searchPathProxyNote}>
             {' '}— proxy sortant actif (mode {state.proxyMode === 'default' ? 'par défaut' : 'repli'}), appliqué à tous les appels sortants.
+          </span>
+        )}
+        <br />
+        <button type="button" className={styles.searchPathClearBtn} onClick={handleClearCache} disabled={clearing}>
+          {clearing ? 'Vidage…' : 'Vider le cache de recherche'}
+        </button>
+        {clearMsg && (
+          <span className={clearMsg.type === 'success' ? styles.searchPathClearSuccess : styles.searchPathClearError}>
+            {' '}{clearMsg.text}
           </span>
         )}
       </span>

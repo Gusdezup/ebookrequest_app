@@ -583,6 +583,7 @@ const [editingComment, setEditingComment] = useState(null);  // utilisé uniquem
     status_change: { label: 'Statut modifié', color: '#94a3b8' },
     upload: { label: 'Fichier uploadé', color: '#3b82f6' },
     resolve_report: { label: 'Signalement résolu', color: '#10b981' },
+    settings_change: { label: 'Réglages modifiés', color: '#8b5cf6' },
   };
 
   const renderTabContent = () => {

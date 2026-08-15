@@ -102,6 +102,14 @@ function authorVariants(name) {
 const searchCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+// Exposé pour un vidage manuel (route admin) — utile après un changement de config
+// (clé API, toggle de service) pour forcer un résultat frais sans attendre le TTL.
+export function clearBooksSearchCache() {
+  const size = searchCache.size;
+  searchCache.clear();
+  return size;
+}
+
 // `googleEnabled` fait partie de la clé : sans ça, désactiver Google Books ne bust pas
 // les entrées déjà en cache (jusqu'à 5 min) pour une requête identique testée avant/après
 // le changement de réglage, qui continuerait sinon à renvoyer d'anciens résultats Google.

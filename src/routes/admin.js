@@ -74,6 +74,18 @@ router.post('/logs/system/sse-token', (req, res) => {
 router.get('/stats', getAdminStats);
 router.get('/health', getServicesHealth);
 
+// Vide le cache mémoire de recherche (Google Books/Hardcover/Open Library, TTL 5 min) —
+// utile après un changement de config pour forcer un résultat frais sans attendre le TTL.
+router.post('/search-cache/clear', async (req, res) => {
+  try {
+    const { clearBooksSearchCache } = await import('./googleBooks.js');
+    const cleared = clearBooksSearchCache();
+    res.json({ success: true, cleared });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors du vidage du cache' });
+  }
+});
+
 router.get('/download-logs', async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
