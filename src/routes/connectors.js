@@ -260,7 +260,10 @@ router.get('/googlebooks', requireAuth, requireAdmin, async (req, res) => {
 router.put('/googlebooks', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { enabled, apiKey, _hasApiKey } = req.body;
-    const update = { enabled: !!enabled };
+    // `enabled` n'est touché que si le champ est explicitement présent dans la requête
+    // (le toggle "activer" l'envoie seul ; "Enregistrer" ne l'envoie plus du tout, pour
+    // ne jamais risquer de réécrire ce réglage avec une valeur obsolète).
+    const update = enabled !== undefined ? { enabled: !!enabled } : {};
 
     if (apiKey && apiKey !== '••••••••') {
       update.apiKey = encrypt(apiKey);
@@ -352,7 +355,7 @@ router.get('/hardcover', requireAuth, requireAdmin, async (req, res) => {
 router.put('/hardcover', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { enabled, apiKey, _hasApiKey } = req.body;
-    const update = { enabled: !!enabled };
+    const update = enabled !== undefined ? { enabled: !!enabled } : {};
 
     if (apiKey && apiKey !== '••••••••') {
       update.apiKey = encrypt(apiKey);
@@ -469,10 +472,10 @@ router.put('/aiprovider', requireAuth, requireAdmin, async (req, res) => {
     }
 
     const update = {
-      enabled: !!enabled,
       provider,
       model: model?.trim() || '',
       url: url?.trim() || '',
+      ...(enabled !== undefined && { enabled: !!enabled }),
     };
 
     if (apiKey && apiKey !== '••••••••') {
@@ -564,7 +567,7 @@ router.put('/rss', requireAuth, requireAdmin, async (req, res) => {
     const { enabled, url } = req.body;
     const doc = await ConnectorSettings.findOneAndUpdate(
       { service: 'rss' },
-      { enabled: !!enabled, url: url?.trim() || '' },
+      { url: url?.trim() || '', ...(enabled !== undefined && { enabled: !!enabled }) },
       { upsert: true, new: true, runValidators: true }
     );
     invalidateRSSUrlCache();
@@ -646,10 +649,10 @@ router.put('/proxy', requireAuth, requireAdmin, async (req, res) => {
     }
 
     const update = {
-      enabled: !!enabled,
       url: url?.trim() || '',
       provider: mode === 'default' ? 'default' : 'fallback',
       username: username?.trim() || '',
+      ...(enabled !== undefined && { enabled: !!enabled }),
     };
     if (password && password !== '••••••••') {
       update.password = encrypt(password);
@@ -775,7 +778,6 @@ router.put('/emailprovider', requireAuth, requireAdmin, async (req, res) => {
     }
 
     const update = {
-      enabled: !!enabled,
       provider,
       smtpHost: smtpHost?.trim() || '',
       smtpPort: Number(smtpPort) || 465,
@@ -783,6 +785,7 @@ router.put('/emailprovider', requireAuth, requireAdmin, async (req, res) => {
       username: username?.trim() || '',
       fromAddress: fromAddress?.trim() || '',
       fromName: fromName?.trim() || '',
+      ...(enabled !== undefined && { enabled: !!enabled }),
     };
     if (apiKey && apiKey !== '••••••••') {
       update.apiKey = encrypt(apiKey);

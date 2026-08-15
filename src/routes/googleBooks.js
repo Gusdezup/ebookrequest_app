@@ -102,8 +102,11 @@ function authorVariants(name) {
 const searchCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-function getCacheKey(title, author, year, startIndex, limit) {
-  return `${(title || '').toLowerCase().trim()}|${(author || '').toLowerCase().trim()}|${year || ''}|${startIndex}|${limit}`;
+// `googleEnabled` fait partie de la clé : sans ça, désactiver Google Books ne bust pas
+// les entrées déjà en cache (jusqu'à 5 min) pour une requête identique testée avant/après
+// le changement de réglage, qui continuerait sinon à renvoyer d'anciens résultats Google.
+function getCacheKey(title, author, year, startIndex, limit, googleEnabled) {
+  return `${(title || '').toLowerCase().trim()}|${(author || '').toLowerCase().trim()}|${year || ''}|${startIndex}|${limit}|g${googleEnabled ? 1 : 0}`;
 }
 
 /**
@@ -516,11 +519,13 @@ router.get('/search', async (req, res) => {
     const limit  = Math.min(parseInt(maxResults) || 10, 10);
     const offset = Math.max(parseInt(startIndex)  || 0,  0);
 
+    const googleEnabled = await isGoogleBooksSearchEnabled();
+
     // Pour auteur seul, la clé de cache ignore l'offset (pool complet mis en cache)
     const authorOnly = !!(author?.trim() && !q?.trim());
     const cacheKey   = authorOnly
-      ? getCacheKey(q, author, 'pool', 0, 40)
-      : getCacheKey(q, author, '', offset, limit);
+      ? getCacheKey(q, author, 'pool', 0, 40, googleEnabled)
+      : getCacheKey(q, author, '', offset, limit, googleEnabled);
 
     // Retourner le cache si valide
     const cached = searchCache.get(cacheKey);
@@ -556,8 +561,6 @@ router.get('/search', async (req, res) => {
 
     let rawItems   = [];
     let totalItems = 0;
-
-    const googleEnabled = await isGoogleBooksSearchEnabled();
 
     if (authorOnly) {
       let pool = [];
@@ -659,9 +662,10 @@ router.get('/search', async (req, res) => {
       const limit       = Math.min(parseInt(req.query.maxResults || 10), 10);
       const offset       = Math.max(parseInt(req.query.startIndex) || 0, 0);
       const authorOnlyErr = !!(req.query.author?.trim() && !req.query.q?.trim());
+      const googleEnabledErr = await isGoogleBooksSearchEnabled();
       const cacheKey      = authorOnlyErr
-        ? getCacheKey(req.query.q, req.query.author, 'pool', 0, 40)
-        : getCacheKey(req.query.q, req.query.author, '', offset, limit);
+        ? getCacheKey(req.query.q, req.query.author, 'pool', 0, 40, googleEnabledErr)
+        : getCacheKey(req.query.q, req.query.author, '', offset, limit, googleEnabledErr);
       const stale = searchCache.get(cacheKey);
       if (stale) {
         if (authorOnlyErr) {

@@ -63,7 +63,9 @@ function GoogleBooksCard() {
     setSaving(true);
     setAlert(null);
     try {
-      const res = await axiosAdmin.put('/api/connectors/googlebooks', config);
+      // `enabled` volontairement omis : géré exclusivement par le toggle (auto-save
+      // immédiat), pour qu'"Enregistrer" ne puisse jamais le réécrire par erreur.
+      const res = await axiosAdmin.put('/api/connectors/googlebooks', { apiKey: config.apiKey, _hasApiKey: config._hasApiKey });
       setConfig(c => ({ ...c, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey }));
       showAlertMsg('success', 'Configuration enregistrée.');
     } catch (err) {
@@ -79,6 +81,7 @@ function GoogleBooksCard() {
     try {
       const res = await axiosAdmin.put('/api/connectors/googlebooks', { ...config, enabled });
       setConfig(c => ({ ...c, enabled: res.data.enabled, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey }));
+      window.dispatchEvent(new Event('ebookrequest:search-settings-changed'));
     } catch (err) {
       setConfig(c => ({ ...c, enabled: !enabled }));
       showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
@@ -229,7 +232,7 @@ function HardcoverCard() {
     setSaving(true);
     setAlert(null);
     try {
-      const res = await axiosAdmin.put('/api/connectors/hardcover', config);
+      const res = await axiosAdmin.put('/api/connectors/hardcover', { apiKey: config.apiKey, _hasApiKey: config._hasApiKey });
       setConfig(c => ({ ...c, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey, _keyUpdatedAt: res.data._keyUpdatedAt || null }));
       showAlertMsg('success', 'Configuration enregistrée.');
     } catch (err) {
@@ -245,6 +248,7 @@ function HardcoverCard() {
     try {
       const res = await axiosAdmin.put('/api/connectors/hardcover', { ...config, enabled });
       setConfig(c => ({ ...c, enabled: res.data.enabled, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey, _keyUpdatedAt: res.data._keyUpdatedAt || null }));
+      window.dispatchEvent(new Event('ebookrequest:search-settings-changed'));
     } catch (err) {
       setConfig(c => ({ ...c, enabled: !enabled }));
       showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
@@ -391,7 +395,8 @@ function ProxyCard() {
     setSaving(true);
     setAlert(null);
     try {
-      const res = await axiosAdmin.put('/api/connectors/proxy', config);
+      const { enabled, ...rest } = config;
+      const res = await axiosAdmin.put('/api/connectors/proxy', rest);
       setConfig(c => ({ ...c, password: res.data.password, _hasPassword: res.data._hasPassword }));
       showAlertMsg('success', 'Configuration enregistrée.');
     } catch (err) {
@@ -407,6 +412,7 @@ function ProxyCard() {
     try {
       const res = await axiosAdmin.put('/api/connectors/proxy', { ...config, enabled });
       setConfig(c => ({ ...c, enabled: res.data.enabled, password: res.data.password, _hasPassword: res.data._hasPassword }));
+      window.dispatchEvent(new Event('ebookrequest:search-settings-changed'));
     } catch (err) {
       setConfig(c => ({ ...c, enabled: !enabled }));
       showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
@@ -600,7 +606,8 @@ function AIProviderCard() {
     setSaving(true);
     setAlert(null);
     try {
-      const res = await axiosAdmin.put('/api/connectors/aiprovider', config);
+      const { enabled, ...rest } = config;
+      const res = await axiosAdmin.put('/api/connectors/aiprovider', rest);
       setConfig(c => ({ ...c, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey }));
       showAlertMsg('success', 'Configuration enregistrée.');
     } catch (err) {
@@ -799,7 +806,8 @@ function RSSFeedCard() {
     e.preventDefault();
     setSaving(true);
     try {
-      await axiosAdmin.put('/api/connectors/rss', config);
+      const { enabled, ...rest } = config;
+      await axiosAdmin.put('/api/connectors/rss', rest);
       showAlertMsg('success', 'Configuration enregistrée.');
     } catch (err) {
       showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
@@ -929,7 +937,8 @@ function EmailProviderCard() {
     setSaving(true);
     setAlert(null);
     try {
-      const res = await axiosAdmin.put('/api/connectors/emailprovider', config);
+      const { enabled, ...rest } = config;
+      const res = await axiosAdmin.put('/api/connectors/emailprovider', rest);
       setConfig(c => ({ ...c, apiKey: res.data.apiKey, _hasApiKey: res.data._hasApiKey }));
       showAlertMsg('success', 'Configuration enregistrée.');
     } catch (err) {
@@ -1161,6 +1170,53 @@ function EmailProviderCard() {
   );
 }
 
+function SearchPathBanner() {
+  const [state, setState] = useState(null); // { googleEnabled, hardcoverEnabled, proxyEnabled, proxyMode }
+
+  useEffect(() => {
+    const fetchState = () => {
+      Promise.all([
+        axiosAdmin.get('/api/connectors/googlebooks').catch(() => ({ data: {} })),
+        axiosAdmin.get('/api/connectors/hardcover').catch(() => ({ data: {} })),
+        axiosAdmin.get('/api/connectors/proxy').catch(() => ({ data: {} })),
+      ]).then(([g, h, p]) => {
+        setState({
+          googleEnabled: g.data.enabled ?? false,
+          hardcoverEnabled: h.data.enabled ?? false,
+          proxyEnabled: p.data.enabled ?? false,
+          proxyMode: p.data.mode || 'fallback',
+        });
+      });
+    };
+    fetchState();
+    window.addEventListener('ebookrequest:search-settings-changed', fetchState);
+    return () => window.removeEventListener('ebookrequest:search-settings-changed', fetchState);
+  }, []);
+
+  if (!state) return null;
+
+  const steps = [];
+  if (state.googleEnabled) steps.push('Google Books');
+  if (state.hardcoverEnabled) steps.push('Hardcover');
+  steps.push('Open Library'); // toujours disponible, pas de toggle
+
+  return (
+    <div className={styles.searchPathBanner}>
+      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+        <path d="M5 12h14M13 6l6 6-6 6"/>
+      </svg>
+      <span>
+        <strong>Ordre de recherche actuel :</strong> {steps.join(' → ')}
+        {state.proxyEnabled && (
+          <span className={styles.searchPathProxyNote}>
+            {' '}— proxy sortant actif (mode {state.proxyMode === 'default' ? 'par défaut' : 'repli'}), appliqué à tous les appels sortants.
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 export default function SettingsPanel() {
   return (
     <div className={styles.panel}>
@@ -1174,6 +1230,8 @@ export default function SettingsPanel() {
         </h2>
         <p className={styles.panelSubtitle}>Configuration des fonctionnalités transverses de l'application.</p>
       </div>
+
+      <SearchPathBanner />
 
       <GoogleBooksCard />
       <HardcoverCard />
