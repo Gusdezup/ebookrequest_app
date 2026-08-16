@@ -58,7 +58,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - **Notifications :** Email (SMTP), Push (VAPID), Apprise
 - **IA :** OpenAI / Ollama / Claude (Anthropic) (recommandations, descriptions)
 - **APIs :** Google Books, Hardcover, Open Library (recherche et métadonnées, avec repli automatique entre les trois)
-- **Connecteurs :** Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via solveur anti-bot — [actuellement bloqué](#téléchargement)), LibGen (repli sans protection anti-bot), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
+- **Connecteurs :** Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via solveur anti-bot [actuellement bloqué](#téléchargement)), LibGen (repli sans protection anti-bot), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
 - **Visionneuse :** PDF (navigateur natif), EPUB (epub.js via react-reader), CBZ/CBR (JSZip)
 - **Conversion :** Calibre (`ebook-convert`) intégré dans l'image Docker EPUB ↔ MOBI, AZW3, FB2 ; CBZ → PDF (JSZip + pdfkit, sans dépendance externe)
 - **Déploiement :** Docker, GitHub Actions, Docker Hub
@@ -80,7 +80,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 
 **Téléchargement**
 - Téléchargement automatique via Valentine, avec repli Anna's Archive puis LibGen
-- Recherche manuelle sur les connecteurs depuis le panel admin — une section par source (Valentine, Anna's Archive, LibGen), interrogées en parallèle
+- Recherche manuelle sur les connecteurs depuis le panel admin une section par source (Valentine, Anna's Archive, LibGen), interrogées en parallèle
 - Si aucune source n'aboutit, la demande est marquée « traitement manuel » côté utilisateur (mise à jour en direct via WebSocket) et les admins sont notifiés
 - Envoi automatique du fichier vers Calibre-Web à la complétion d'une demande
 - Synchronisation automatique de l'étagère Kobo dans Calibre-Web (le livre apparaît directement sur la liseuse)
@@ -92,8 +92,8 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 > - `/search`, jusqu'ici accessible en HTTP direct, renvoie désormais un challenge (403) ;
 > - le challenge des pages de téléchargement, que le solveur franchissait auparavant, ne passe plus.
 >
-> Les trois solveurs libres testés en août 2026 — FlareSolverr,
-> [Byparr](https://github.com/ThePhaseless/Byparr) et [Trawl](https://github.com/germondai/trawl) —
+> Les trois solveurs libres testés en août 2026. FlareSolverr,
+> [Byparr](https://github.com/ThePhaseless/Byparr) et [Trawl](https://github.com/germondai/trawl)
 > échouent tous : ils ciblent Cloudflare/Akamai/Imperva, pas DDoS-Guard. Le proxy sortant
 > (y compris appliqué au navigateur du solveur) ne change rien.
 >
@@ -101,7 +101,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 > silencieusement : bandeau d'avertissement sur la carte du connecteur, statut orange dans
 > Santé des services, et lien de recherche manuelle dans la modale (un navigateur classique
 > passe le challenge sans problème). **LibGen prend le relais** pour la recherche et le
-> téléchargement automatique — il n'a aucune protection anti-bot et partage les mêmes
+> téléchargement automatique, il n'a aucune protection anti-bot et partage les mêmes
 > empreintes MD5, mais sa couverture se limite aux romans et ouvrages : ni BD, ni comics, ni mangas.
 
 **Utilisateurs & accès**
@@ -226,18 +226,46 @@ services:
 > dans le `docker-compose.yml` était `ghcr.io/flaresolverr/flaresolverr` ; c'est désormais
 > [Byparr](https://github.com/ThePhaseless/Byparr) (`ghcr.io/thephaseless/byparr`).
 >
-> **Seule l'image change — aucune modification de code n'a été nécessaire** : Byparr expose la même
+> **Seule l'image change aucune modification de code n'a été nécessaire** : Byparr expose la même
 > API `/v1` que FlareSolverr, et le service garde le nom `flaresolverr`, donc
 > `FLARESOLVERR_URL=http://flaresolverr:8191` reste valable et la variable n'est pas à toucher.
 > Revenir à FlareSolverr consiste juste à remettre l'ancienne image dans le compose.
 >
 > Deux ajouts propres à Byparr : `shm_size: 512mb` (son navigateur en a besoin) et les variables
-> `BYPARR_PROXY_*`, qui permettent de faire sortir le navigateur du solveur par un proxy — utile
+> `BYPARR_PROXY_*`, qui permettent de faire sortir le navigateur du solveur par un proxy, utile
 > car DDoS-Guard bloque plus volontiers les IP datacenter. `platform: linux/amd64` est requis sur ARM64.
 >
 > À noter : **aucun solveur libre ne passe actuellement DDoS-Guard** (voir l'avertissement plus haut).
 > Byparr n'a pas été choisi parce qu'il réussit, mais parce qu'il **échoue le plus vite** (8-12 s, là où
 > FlareSolverr part en timeout), ce qui laisse la main au repli LibGen sans faire attendre l'utilisateur.
+
+> [!CAUTION]
+> **Vérifiez vos ressources avant de déployer Byparr.** Il embarque un navigateur complet, ce qui le
+> rend nettement plus gourmand que FlareSolverr :
+> - **Stockage :** l'image pèse plus d'1 Go. Sur un disque presque plein, le téléchargement échoue à
+>   mi-parcours et Portainer se contente d'afficher une erreur 500 sans expliquer la cause. Prévoyez
+>   au moins 3 Go libres, et vérifiez avec `df -h /` avant de déployer.
+> - **Mémoire :** comptez ~1 Go de RAM disponible pour le conteneur, en plus du reste de la stack.
+>   Sur une machine trop juste, le navigateur sature la mémoire et peut faire tomber le serveur
+>   entier — SSH compris.
+>
+> Sur un petit serveur (VPS 1-2 Go, Raspberry Pi, NAS), **restez sur FlareSolverr** : il est bien plus
+> léger et vous ne perdez aucune capacité, puisque ni l'un ni l'autre ne passe DDoS-Guard et que
+> LibGen prend le relais dans les deux cas. Le seul écart est quelques secondes de délai avant le repli.
+>
+> ```yaml
+>   flaresolverr:
+>     image: ghcr.io/flaresolverr/flaresolverr:latest
+>     container_name: flaresolverr
+>     restart: unless-stopped
+>     environment:
+>       - LOG_LEVEL=info
+>     ports:
+>       - "127.0.0.1:8191:8191"
+> ```
+>
+> Dans ce cas, retirez `platform`, `shm_size`, le `healthcheck` et les variables `BYPARR_PROXY_*` :
+> elles sont propres à Byparr et FlareSolverr ne les lit pas.
 
 ### Variables d'environnement
 
