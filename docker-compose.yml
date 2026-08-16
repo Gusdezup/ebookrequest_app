@@ -68,11 +68,22 @@ services:
       - "127.0.0.1:8000:8000"
 
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    image: ghcr.io/thephaseless/byparr:latest
     platform: linux/amd64
     container_name: flaresolverr
     restart: unless-stopped
+    shm_size: 512mb
     environment:
-      - LOG_LEVEL=info
+      - PROXY_SERVER=${BYPARR_PROXY_SERVER:-}
+      - PROXY_USERNAME=${BYPARR_PROXY_USERNAME:-}
+      - PROXY_PASSWORD=${BYPARR_PROXY_PASSWORD:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8191/health"]
+      interval: 5m
+      timeout: 120s
+      start_period: 60s
+      retries: 5
     ports:
       - "127.0.0.1:8191:8191"

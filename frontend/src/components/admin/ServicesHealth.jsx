@@ -159,7 +159,14 @@ const SERVICE_DEFS = [
     ),
     isEnabled: (s) => s.enabled,
     isConnected: (s) => s.connected,
-    details: () => [],
+    // Joignable mais /search bloqué par DDoS-Guard : le connecteur répond, mais recherche
+    // et téléchargement automatique sont hors service — un statut « connecté » seul serait
+    // trompeur.
+    isWarning: (s) => s.connected && s.searchable === false,
+    details: (s) => (s.connected && s.searchable ? ['Recherche opérationnelle'] : []),
+    warning: (s) => (s.connected && s.searchable === false
+      ? 'Protection anti-bot active — recherche et téléchargement automatique indisponibles. LibGen prend le relais s\'il est activé.'
+      : null),
     error: (s) => s.error,
   },
   {

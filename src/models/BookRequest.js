@@ -121,6 +121,13 @@ const bookRequestSchema = new mongoose.Schema({
     date: { type: Date, default: null },
     connectors: [{ type: String }],
   },
+  // Renseigné quand aucune source automatique n'aboutit : permet d'afficher à l'utilisateur
+  // que sa demande passera par un traitement manuel (donc un délai plus long), au lieu de
+  // la laisser « en attente » sans explication.
+  autoDownloadFailed: {
+    at:     { type: Date, default: null },
+    reason: { type: String, default: '' },
+  },
   calibrePush: {
     status:   { type: String, enum: [null, 'success', 'failed'], default: null },
     error:    { type: String, default: null },

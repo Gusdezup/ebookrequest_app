@@ -468,24 +468,42 @@ router.get('/series-tomes', async (req, res) => {
     const { name, excludeId } = req.query;
     if (!name) return res.status(400).json({ error: 'Nom de série requis' });
 
-    // Tenter plusieurs stratégies de requête, fusionner et dédupliquer
-    const queries = [
-      `intitle:"${name}" tome`,
-      `intitle:"${name}"`,
-      name,
-    ];
-
-    const seen = new Set();
     let rawItems = [];
 
-    const settled = await Promise.allSettled(queries.map(q => fetchFromGoogle(q, 40, 0)));
-    for (const s of settled) {
-      if (s.status !== 'fulfilled') continue;
-      for (const item of s.value.items) {
-        if (!seen.has(item.id)) {
-          seen.add(item.id);
-          rawItems.push(item);
+    if (await isGoogleBooksSearchEnabled()) {
+      // Tenter plusieurs stratégies de requête, fusionner et dédupliquer
+      const queries = [
+        `intitle:"${name}" tome`,
+        `intitle:"${name}"`,
+        name,
+      ];
+
+      const seen = new Set();
+      const settled = await Promise.allSettled(queries.map(q => fetchFromGoogle(q, 40, 0)));
+      for (const s of settled) {
+        if (s.status !== 'fulfilled') continue;
+        for (const item of s.value.items) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            rawItems.push(item);
+          }
         }
+      }
+    }
+
+    // Repli Hardcover puis Open Library si Google Books est désactivé/ne trouve rien
+    if (rawItems.length === 0) {
+      try {
+        rawItems = await fetchFromHardcoverSearch(name, 40);
+      } catch (hcErr) {
+        console.warn('[Books] Hardcover fallback series-tomes échoué:', hcErr.message);
+      }
+    }
+    if (rawItems.length === 0) {
+      try {
+        rawItems = await fetchFromOpenLibrarySearch(name, 40);
+      } catch (olErr) {
+        console.warn('[Books] Open Library fallback series-tomes échoué:', olErr.message);
       }
     }
 

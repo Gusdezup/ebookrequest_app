@@ -58,7 +58,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - **Notifications :** Email (SMTP), Push (VAPID), Apprise
 - **IA :** OpenAI / Ollama / Claude (Anthropic) (recommandations, descriptions)
 - **APIs :** Google Books, Hardcover, Open Library (recherche et métadonnées, avec repli automatique entre les trois)
-- **Connecteurs :** Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via FlareSolverr), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
+- **Connecteurs :** Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via solveur anti-bot — [actuellement bloqué](#téléchargement)), LibGen (repli sans protection anti-bot), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
 - **Visionneuse :** PDF (navigateur natif), EPUB (epub.js via react-reader), CBZ/CBR (JSZip)
 - **Conversion :** Calibre (`ebook-convert`) intégré dans l'image Docker EPUB ↔ MOBI, AZW3, FB2 ; CBZ → PDF (JSZip + pdfkit, sans dépendance externe)
 - **Déploiement :** Docker, GitHub Actions, Docker Hub
@@ -79,11 +79,30 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - Soumission admin au nom d'un autre utilisateur
 
 **Téléchargement**
-- Téléchargement automatique via Valentine, avec fallback Anna's Archive
-- Recherche manuelle sur les connecteurs depuis le panel admin
+- Téléchargement automatique via Valentine, avec repli Anna's Archive puis LibGen
+- Recherche manuelle sur les connecteurs depuis le panel admin — une section par source (Valentine, Anna's Archive, LibGen), interrogées en parallèle
+- Si aucune source n'aboutit, la demande est marquée « traitement manuel » côté utilisateur (mise à jour en direct via WebSocket) et les admins sont notifiés
 - Envoi automatique du fichier vers Calibre-Web à la complétion d'une demande
 - Synchronisation automatique de l'étagère Kobo dans Calibre-Web (le livre apparaît directement sur la liseuse)
 - Envoi automatique du fichier sur l'adresse `@kindle.com` de l'utilisateur à chaque complétion (activable par l'utilisateur dans ses paramètres, requiert un email vérifié)
+
+> [!WARNING]
+> **Anna's Archive est actuellement inutilisable en automatique.** Le site a toujours été derrière
+> DDoS-Guard, mais la protection s'est nettement renforcée courant août 2026 :
+> - `/search`, jusqu'ici accessible en HTTP direct, renvoie désormais un challenge (403) ;
+> - le challenge des pages de téléchargement, que le solveur franchissait auparavant, ne passe plus.
+>
+> Les trois solveurs libres testés en août 2026 — FlareSolverr,
+> [Byparr](https://github.com/ThePhaseless/Byparr) et [Trawl](https://github.com/germondai/trawl) —
+> échouent tous : ils ciblent Cloudflare/Akamai/Imperva, pas DDoS-Guard. Le proxy sortant
+> (y compris appliqué au navigateur du solveur) ne change rien.
+>
+> En attendant une solution, l'application le signale explicitement plutôt que d'échouer
+> silencieusement : bandeau d'avertissement sur la carte du connecteur, statut orange dans
+> Santé des services, et lien de recherche manuelle dans la modale (un navigateur classique
+> passe le challenge sans problème). **LibGen prend le relais** pour la recherche et le
+> téléchargement automatique — il n'a aucune protection anti-bot et partage les mêmes
+> empreintes MD5, mais sa couverture se limite aux romans et ouvrages : ni BD, ni comics, ni mangas.
 
 **Utilisateurs & accès**
 - Inscription par invitation email ou code d'invitation (usage limité, expiration configurable)
@@ -130,6 +149,9 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 **Administration**
 - Panel admin avec statistiques et logs
 - Visionneuse de logs système en temps réel
+- **Santé des services :** état en direct de chaque source et connecteur, avec distinction entre « injoignable » et « joignable mais inutilisable » (challenge anti-bot non résolu), et bandeau d'explication sur la carte du connecteur concerné
+- **Alertes de panne :** notification email + Apprise aux admins quand un service tombe, avec anti-spam de 24 h par service (activable par connecteur)
+- Traçabilité des changements de configuration (activation/désactivation d'un service) dans les logs admin
 - **Recherche globale :** (`⌘K` / `Ctrl+K` ou barre dans le menu) résultats groupés par catégorie : demandes, bibliothèque, utilisateurs (admin)
 
 **Intégration (MCP)**
@@ -163,7 +185,7 @@ zlimteck/ebookrequest:latest
 
 ### docker-compose.yml
 
-Un `docker-compose.yml` est fourni à la racine du projet. Il inclut le conteneur principal **ebookrequest** ainsi que **FlareSolverr** (nécessaire pour Anna's Archive) :
+Un `docker-compose.yml` est fourni à la racine du projet. Il inclut le conteneur principal **ebookrequest** ainsi qu'un **solveur anti-bot** (utilisé par Anna's Archive) :
 
 ```yaml
 services:
@@ -185,16 +207,37 @@ services:
       - "host.docker.internal:host-gateway"
 
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    image: ghcr.io/thephaseless/byparr:latest
+    platform: linux/amd64
     container_name: flaresolverr
     restart: unless-stopped
+    shm_size: 512mb
+    environment:
+      - PROXY_SERVER=${BYPARR_PROXY_SERVER:-}
+      - PROXY_USERNAME=${BYPARR_PROXY_USERNAME:-}
+      - PROXY_PASSWORD=${BYPARR_PROXY_PASSWORD:-}
     ports:
       - "8191:8191"
 ```
 
 > Les variables d'environnement sont lues depuis le fichier `.env` placé au même niveau que `docker-compose.yml`.
 
-> **FlareSolverr** est inclus dans le `docker-compose.yml` et démarré automatiquement. Il est nécessaire pour contourner la protection Cloudflare d'Anna's Archive lors des téléchargements automatiques. Sans lui, le connecteur Anna's Archive ne fonctionnera pas. L'URL est préconfigurée à `http://flaresolverr:8191` aucune configuration supplémentaire n'est requise si tu utilises le `docker-compose.yml` fourni.
+> **Changement d'image (août 2026) : Byparr remplace FlareSolverr par défaut.** Le solveur livré
+> dans le `docker-compose.yml` était `ghcr.io/flaresolverr/flaresolverr` ; c'est désormais
+> [Byparr](https://github.com/ThePhaseless/Byparr) (`ghcr.io/thephaseless/byparr`).
+>
+> **Seule l'image change — aucune modification de code n'a été nécessaire** : Byparr expose la même
+> API `/v1` que FlareSolverr, et le service garde le nom `flaresolverr`, donc
+> `FLARESOLVERR_URL=http://flaresolverr:8191` reste valable et la variable n'est pas à toucher.
+> Revenir à FlareSolverr consiste juste à remettre l'ancienne image dans le compose.
+>
+> Deux ajouts propres à Byparr : `shm_size: 512mb` (son navigateur en a besoin) et les variables
+> `BYPARR_PROXY_*`, qui permettent de faire sortir le navigateur du solveur par un proxy — utile
+> car DDoS-Guard bloque plus volontiers les IP datacenter. `platform: linux/amd64` est requis sur ARM64.
+>
+> À noter : **aucun solveur libre ne passe actuellement DDoS-Guard** (voir l'avertissement plus haut).
+> Byparr n'a pas été choisi parce qu'il réussit, mais parce qu'il **échoue le plus vite** (8-12 s, là où
+> FlareSolverr part en timeout), ce qui laisse la main au repli LibGen sans faire attendre l'utilisateur.
 
 ### Variables d'environnement
 
@@ -268,6 +311,8 @@ npx web-push generate-vapid-keys
 #### Connecteurs & services externes
 
 > `GOOGLE_BOOKS_API_KEY` et `RSS_FEED_URL` sont **optionnelles depuis la 1.5.2** configurables dans **Réglages**, avec la même migration automatique depuis le `.env` que l'email et l'IA. **Hardcover** (repli entre Google Books et Open Library) n'a pas de variable d'environnement : clé API et activation se configurent uniquement depuis **Réglages** (désactivé par défaut).
+>
+> Les connecteurs de téléchargement (**Valentine**, **Anna's Archive**, **LibGen**, **Calibre-Web**) n'ont eux non plus aucune variable d'environnement : URL, identifiants et activation se règlent depuis **Admin → Connecteurs**, et les secrets sont chiffrés en base. Seule exception, `FLARESOLVERR_URL` ci-dessous, qui pointe vers le solveur anti-bot utilisé par Anna's Archive.
 
 | Variable | Description |
 |---|---|
@@ -275,7 +320,10 @@ npx web-push generate-vapid-keys
 | `APPRISE_URL` | URL du service Apprise pour les notifications. Par défaut `http://apprise:8000` (conteneur inclus dans le `docker-compose.yml`). Supprimer le service `apprise` du compose si vous hébergez déjà Apprise ailleurs, et renseigner son URL ici. Ne pas ajouter `/notify` le chemin est ajouté automatiquement. Voir [github.com/caronc/apprise-api](https://github.com/caronc/apprise-api). |
 | `APPRISE_CONFIG_PATH` | Chemin local vers le dossier de configuration Apprise (défaut : `./apprise-config`). Nécessaire si `APPRISE_STATEFUL_MODE=simple` est activé sur le conteneur Apprise. |
 | `TZ` | Fuseau horaire des conteneurs (ex : `Europe/Paris`). Utile pour que les logs s'affichent à la bonne heure. |
-| `FLARESOLVERR_URL` | URL du service FlareSolverr pour contourner les protections Cloudflare (défaut : `http://flaresolverr:8191`) |
+| `FLARESOLVERR_URL` | URL du solveur anti-bot, API compatible FlareSolverr — Byparr par défaut (défaut : `http://flaresolverr:8191`) |
+| `BYPARR_PROXY_SERVER` | Proxy sortant du navigateur du solveur, ex. `http://ip:port` (optionnel) |
+| `BYPARR_PROXY_USERNAME` | Identifiant du proxy du solveur (optionnel) |
+| `BYPARR_PROXY_PASSWORD` | Mot de passe du proxy du solveur (optionnel) |
 | `RSS_FEED_URL` | URL du flux RSS PreDB.me utilisé pour vérifier la disponibilité d'un livre à la soumission (défaut : `https://predb.me/?cats=books-ebooks&rss=1`). |
 | `MCP_PORT` | Port du serveur MCP (défaut : `3035`) |
 | `MCP_URL` | URL publique du serveur MCP (ex : `https://mcp.ndd.fr`). Affichée aux utilisateurs dans les paramètres. Optionnel et si absent, la section MCP est masquée. |
@@ -314,6 +362,8 @@ Si votre IP serveur est throttlée/bloquée par Google Books, Hardcover ou Open 
 - **Par défaut :** proxy en priorité, repli sur la connexion directe si le proxy échoue.
 
 Le proxy peut être un service tiers ou auto-hébergé (ex : Squid sur un serveur avec une IP résidentielle), avec authentification optionnelle (utilisateur/mot de passe).
+
+Il s'applique aussi aux connecteurs de téléchargement (Anna's Archive, LibGen), ce qui peut débloquer une IP d'hébergeur filtrée par un miroir. À ne pas confondre avec `BYPARR_PROXY_*` : celui-ci ne concerne que le navigateur interne du solveur anti-bot et se configure dans le `.env`, pas dans **Réglages**. Les deux sont indépendants et peuvent viser le même proxy.
 
 ### Lancer l'application
 

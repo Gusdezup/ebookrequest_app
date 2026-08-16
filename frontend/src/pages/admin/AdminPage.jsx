@@ -127,6 +127,11 @@ const [editingComment, setEditingComment] = useState(null);  // utilisé uniquem
   const [valentineDownloading, setValentineDownloading] = useState(null);
   const [valentineModalQuota, setValentineModalQuota] = useState(null);
   const [annasResults, setAnnasResults] = useState(null);
+  const [annasFallback, setAnnasFallback] = useState(null); // { url, unavailable, disabled }
+  const [valentineState, setValentineState] = useState(null); // { disabled, unavailable }
+  const [libgenResults, setLibgenResults] = useState(null);
+  const [libgenLoading, setLibgenLoading] = useState(false);
+  const [libgenState, setLibgenState] = useState(null);      // { disabled, unavailable }
   const [annasLoading, setAnnasLoading] = useState(false);
   const [annasDownloading, setAnnasDownloading] = useState(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -195,6 +200,11 @@ const [editingComment, setEditingComment] = useState(null);  // utilisé uniquem
     setValentineDownloading(null);
     setAnnasDownloading(null);
     setValentineModalQuota(null);
+    setAnnasFallback(null);
+    setValentineState(null);
+    setLibgenResults(null);
+    setLibgenLoading(false);
+    setLibgenState(null);
   };
 
   const runConnectorsSearch = async (query) => {
@@ -202,14 +212,50 @@ const [editingComment, setEditingComment] = useState(null);  // utilisé uniquem
     setAnnasResults(null);
     setValentineLoading(true);
     setAnnasLoading(true);
+    setValentineState(null);
     axiosAdmin.get(`/api/connectors/valentine/search?q=${encodeURIComponent(query)}`)
-      .then(res => setValentineResults(res.data.results))
-      .catch(() => setValentineResults([]))
+      .then(res => {
+        setValentineResults(res.data.results || []);
+        setValentineState({ disabled: res.data.disabled, unavailable: res.data.unavailable });
+      })
+      .catch(() => {
+        setValentineResults([]);
+        setValentineState({ unavailable: true });
+      })
       .finally(() => setValentineLoading(false));
+    setAnnasFallback(null);
     axiosAdmin.get(`/api/connectors/annasarchive/search?q=${encodeURIComponent(query)}`)
-      .then(res => setAnnasResults(res.data.results))
-      .catch(() => setAnnasResults([]))
+      .then(res => {
+        setAnnasResults(res.data.results);
+        // Aucun résultat : le backend fournit un lien de recherche manuelle (le navigateur
+        // de l'admin passe le DDoS-Guard que les solveurs ne passent pas).
+        if (!res.data.results?.length) {
+          setAnnasFallback({
+            url: res.data.manualSearchUrl,
+            unavailable: res.data.unavailable,
+            disabled: res.data.disabled,
+          });
+        }
+      })
+      .catch(() => {
+        setAnnasResults([]);
+        setAnnasFallback({ url: `https://annas-archive.gl/search?q=${encodeURIComponent(query)}`, unavailable: true });
+      })
       .finally(() => setAnnasLoading(false));
+
+    setLibgenResults(null);
+    setLibgenState(null);
+    setLibgenLoading(true);
+    axiosAdmin.get(`/api/connectors/libgen/search?q=${encodeURIComponent(query)}`)
+      .then(res => {
+        setLibgenResults(res.data.results || []);
+        setLibgenState({ disabled: res.data.disabled, unavailable: res.data.unavailable });
+      })
+      .catch(() => {
+        setLibgenResults([]);
+        setLibgenState({ unavailable: true });
+      })
+      .finally(() => setLibgenLoading(false));
   };
 
   const downloadFromValentine = async (ebookId) => {
@@ -2029,7 +2075,13 @@ const [editingComment, setEditingComment] = useState(null);  // utilisé uniquem
                       }
                     </div>
                     {valentineResults === null ? null : valentineResults.length === 0 ? (
-                      <div className={styles.fileBrowserEmpty}>Aucun résultat</div>
+                      <div className={styles.fileBrowserEmpty}>
+                        {valentineState?.disabled
+                          ? 'Connecteur désactivé'
+                          : valentineState?.unavailable
+                            ? 'Source inaccessible'
+                            : 'Aucun résultat'}
+                      </div>
                     ) : (
                       <div className={styles.valentineResultsList}>
                         {valentineResults.map(r => (
@@ -2069,7 +2121,26 @@ const [editingComment, setEditingComment] = useState(null);  // utilisé uniquem
                       {annasLoading && <span className={styles.spinner} style={{marginLeft:'auto'}} />}
                     </div>
                     {annasResults === null ? null : annasResults.length === 0 ? (
-                      <div className={styles.fileBrowserEmpty}>Aucun résultat</div>
+                      <div className={styles.fileBrowserEmpty}>
+                        {annasFallback?.disabled
+                          ? 'Connecteur désactivé'
+                          : annasFallback?.unavailable
+                            ? 'Source inaccessible (protection anti-bot)'
+                            : 'Aucun résultat'}
+                        {annasFallback?.url && (
+                          <>
+                            <br />
+                            <a
+                              href={annasFallback.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: 'var(--color-accent)', fontWeight: 600, display: 'inline-block', marginTop: '0.5rem' }}
+                            >
+                              Rechercher manuellement sur Anna's Archive ↗
+                            </a>
+                          </>
+                        )}
+                      </div>
                     ) : (
                       <div className={styles.valentineResultsList}>
                         {annasResults.map(r => (
@@ -2090,6 +2161,52 @@ const [editingComment, setEditingComment] = useState(null);  // utilisé uniquem
                                 disabled={annasDownloading !== null}
                                 onClick={() => downloadFromAnnasArchive(r.md5, r.format)}
                                 title="Télécharger via Anna's Archive"
+                              >
+                                {annasDownloading === r.md5
+                                  ? <span className={styles.spinner} />
+                                  : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                }
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={styles.connectorsSection}>
+                    <div className={styles.connectorsSectionHeader}>
+                      <span className={styles.connectorsSectionLogoAnnas}>L</span>
+                      <span>LibGen</span>
+                      {libgenLoading && <span className={styles.spinner} style={{marginLeft:'auto'}} />}
+                    </div>
+                    {libgenResults === null ? null : libgenResults.length === 0 ? (
+                      <div className={styles.fileBrowserEmpty}>
+                        {libgenState?.disabled
+                          ? 'Connecteur désactivé'
+                          : libgenState?.unavailable
+                            ? 'Source inaccessible'
+                            : 'Aucun résultat'}
+                      </div>
+                    ) : (
+                      <div className={styles.valentineResultsList}>
+                        {libgenResults.map(r => (
+                          <div key={r.md5} className={styles.valentineResultRow}>
+                            <div className={styles.valentineResultInfo}>
+                              <span className={styles.valentineResultTitle}>{r.title}</span>
+                              {r.author && <span className={styles.valentineResultAuthor}>{r.author}</span>}
+                              <span className={styles.valentineResultSize}>{[r.format, r.size, r.year, r.lang].filter(Boolean).join(' · ')}</span>
+                            </div>
+                            <div className={styles.valentineResultActions}>
+                              <a href={r.annaUrl} target="_blank" rel="noopener noreferrer"
+                                className={styles.aIconBtn} title="Ouvrir sur LibGen" onClick={e => e.stopPropagation()}>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                              </a>
+                              <button
+                                className={`${styles.aIconBtn} ${styles.aIconBtnSuccess}`}
+                                disabled={annasDownloading !== null}
+                                onClick={() => downloadFromAnnasArchive(r.md5, r.format)}
+                                title="Télécharger (via les miroirs LibGen)"
                               >
                                 {annasDownloading === r.md5
                                   ? <span className={styles.spinner} />

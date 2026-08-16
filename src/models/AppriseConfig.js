@@ -17,6 +17,7 @@ const appriseConfigSchema = new mongoose.Schema({
   notifyOnReport:     { type: Boolean, default: true },
   notifyOnNewUser:    { type: Boolean, default: false },
   notifyOnDownloadFailed: { type: Boolean, default: true },
+  notifyOnProviderIssue:  { type: Boolean, default: true },
   configuredBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

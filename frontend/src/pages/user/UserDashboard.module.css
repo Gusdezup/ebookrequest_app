@@ -749,6 +749,37 @@
 
 .reportedNotice p { margin: 0; color: var(--color-text-muted); }
 
+/* Pastille compacte sur la card : le détail complet est en infobulle (title) pour ne pas
+   allonger la carte. La version développée existe dans le panneau déplié du tableau. */
+.manualBadge {
+  padding: 0.18rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.64rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: rgba(245,158,11,0.12);
+  color: #f59e0b;
+}
+
+.manualNotice {
+  font-size: 0.78rem;
+  background: rgba(245,158,11,0.06);
+  border-left: 2px solid #f59e0b;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0 4px 4px 0;
+  margin-top: 0.25rem;
+}
+
+.manualNoticeLabel {
+  font-weight: 600;
+  color: #f59e0b;
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.manualNotice p { margin: 0; color: var(--color-text-muted); }
+
 .emptyState {
   text-align: center;
   padding: 3rem 1rem;
@@ -787,6 +818,15 @@
 @media (max-width: 600px) {
   .dashboardContainer {
     padding: 1.25rem 0.75rem;
+  }
+
+  .requestHeader {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .requestTitle {
+    flex: 1 1 100%;
   }
 
   .bookCover {

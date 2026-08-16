@@ -403,6 +403,20 @@ export const sendDownloadFailedToAdminsEmail = async (admin, bookRequest, annaUr
   try { await sendEmail({ to: admin.email, subject: `⚠️ DL échoué : ${escapeHtml(bookRequest.title)}`, html, type: 'download_failed_admin' }); } catch (e) { console.error('[Email] download_failed_admin:', e.message); }
 };
 
+export const sendProviderIssueToAdminsEmail = async (admin, serviceName, message) => {
+  if (!admin?.email || !admin?.emailVerified) return;
+  const html = darkEmail({
+    gradient: 'linear-gradient(135deg,#f59e0b 0%,#ef4444 100%)',
+    title: `⚠️ ${serviceName} problème détecté`,
+    subtitle: 'Vérification automatique des services',
+    body: `
+      <p style="color:#cbd5e1;font-size:0.95rem;line-height:1.7;margin:0 0 1.25rem;">Bonjour <strong style="color:#e2e8f0;">${escapeHtml(admin.username)}</strong>,</p>
+      <p style="color:#cbd5e1;font-size:0.95rem;margin:0 0 1rem;">${escapeHtml(message)}</p>
+      ${adminLink()}`,
+  });
+  try { await sendEmail({ to: admin.email, subject: `⚠️ ${escapeHtml(serviceName)} — problème détecté`, html, type: 'provider_issue_admin' }); } catch (e) { console.error('[Email] provider_issue_admin:', e.message); }
+};
+
 export const sendInvitationEmail = async (email, invitedByUsername, token) => {
   const link = `${FRONTEND()}/register?token=${token}`;
   const html = darkEmail({

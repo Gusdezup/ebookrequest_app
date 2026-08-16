@@ -483,6 +483,25 @@ select.fieldInput {
   font-variant-numeric: tabular-nums;
 }
 
+/* Avertissement : le connecteur est joignable mais inutilisable (challenge anti-bot
+   non résolu par le solveur) — distinct d'une simple indisponibilité réseau. */
+.solverWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 1rem 1.5rem 0;
+  padding: 0.65rem 0.8rem;
+  background: rgba(245,158,11,0.1);
+  border: 1px solid rgba(245,158,11,0.25);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.solverWarning svg { color: #f59e0b; }
+.solverWarning strong { color: #f59e0b; }
+
 .nextScanInterval {
   color: var(--color-text-muted);
   font-size: 0.8rem;

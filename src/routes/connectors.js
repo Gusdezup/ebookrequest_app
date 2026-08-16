@@ -167,10 +167,13 @@ router.get('/valentine/search', requireAuth, requireAdmin, async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'Paramètre q requis' });
   try {
+    const doc = await ConnectorSettings.findOne({ service: 'valentine' }).lean();
+    if (!doc?.enabled) return res.json({ results: [], disabled: true });
     const results = await searchOnValentine(q);
     res.json({ results });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    // 200 volontaire : le front distingue « aucun résultat » de « source injoignable »
+    res.json({ results: [], unavailable: true, error: err.message });
   }
 });
 
@@ -188,6 +191,58 @@ router.post('/valentine/download-request', requireAuth, requireAdmin, async (req
     const br = await BookRequest.findById(requestId).lean().catch(() => null);
     await DownloadLog.create({ bookRequestId: requestId, title: br?.title || '', author: br?.author || '', username: br?.username || '', connector: 'valentine', success: false, error: err.message.slice(0, 500), triggeredBy: 'admin' }).catch(() => {});
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/connectors/libgen ───────────────────────────────────────────────
+router.get('/libgen', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { getLibgenConfig } = await import('../services/libgenService.js');
+    const doc = await getLibgenConfig();
+    res.json({ enabled: doc.enabled, url: doc.url });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/libgen ───────────────────────────────────────────────
+router.put('/libgen', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { saveLibgenConfig } = await import('../services/libgenService.js');
+    const { enabled, url } = req.body;
+    const doc = await saveLibgenConfig({ enabled, url });
+    if (enabled !== undefined) logSettingsToggle(req, 'LibGen', doc.enabled);
+    res.json({ enabled: doc.enabled, url: doc.url });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// ── GET /api/connectors/libgen/search?q=... ──────────────────────────────────
+router.get('/libgen/search', requireAuth, requireAdmin, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'Paramètre q requis' });
+  try {
+    const { getLibgenConfig, searchOnLibgen } = await import('../services/libgenService.js');
+    if (!(await getLibgenConfig()).enabled) {
+      return res.json({ results: [], baseUrl: null, disabled: true });
+    }
+    const { results, baseUrl } = await searchOnLibgen(q);
+    res.json({ results, baseUrl });
+  } catch (err) {
+    // 200 volontaire : le front distingue « aucun résultat » de « source injoignable »
+    res.json({ results: [], baseUrl: null, unavailable: true, error: err.message });
+  }
+});
+
+// ── GET /api/connectors/libgen/ping ──────────────────────────────────────────
+router.get('/libgen/ping', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { pingLibgen } = await import('../services/libgenService.js');
+    const { baseUrl } = await pingLibgen();
+    res.json({ ok: true, baseUrl });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message });
   }
 });
 
@@ -214,10 +269,10 @@ router.put('/annasarchive', requireAuth, requireAdmin, async (req, res) => {
 // ── GET /api/connectors/annasarchive/ping ────────────────────────────────────
 router.get('/annasarchive/ping', requireAuth, requireAdmin, async (req, res) => {
   try {
-    await pingAnnasArchive();
-    res.json({ ok: true });
+    const { reachable, searchable } = await pingAnnasArchive();
+    res.json({ ok: reachable, searchable });
   } catch (err) {
-    res.status(503).json({ ok: false, error: err.message });
+    res.status(503).json({ ok: false, searchable: false, error: err.message });
   }
 });
 
@@ -225,12 +280,36 @@ router.get('/annasarchive/ping', requireAuth, requireAdmin, async (req, res) => 
 router.get('/annasarchive/search', requireAuth, requireAdmin, async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'Paramètre q requis' });
+
+  // Recherche manuelle : chaque source a sa propre section côté UI (comme Valentine),
+  // donc pas de repli en chaîne ici — c'est le rôle de l'orchestrateur pour l'auto-DL.
+  const annasCfg = await getAnnasArchiveConfig().catch(() => ({}));
+  if (!annasCfg.enabled) return res.json({ results: [], baseUrl: null, disabled: true });
+
+  let annasErr = null;
   try {
     const { results, baseUrl } = await searchOnAnnasArchive(q);
-    res.json({ results, baseUrl });
+    if (results.length) return res.json({ results, baseUrl, source: 'annasarchive' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    annasErr = err;
   }
+
+  // On répond 200 même en cas d'échec, avec un lien de recherche manuelle : le navigateur
+  // de l'admin passe le challenge DDoS-Guard que les solveurs ne passent pas. Un 500 serait
+  // converti en « aucun résultat » par le front, masquant la différence entre « rien
+  // trouvé » et « source inaccessible ».
+  const annasBase = (annasCfg.url || 'https://annas-archive.gl').replace(/\/$/, '');
+  const params = new URLSearchParams({ q });
+  if (annasCfg.lang) params.set('lang', annasCfg.lang);
+
+  res.json({
+    results: [],
+    baseUrl: null,
+    source: 'annasarchive',
+    manualSearchUrl: `${annasBase}/search?${params.toString()}`,
+    unavailable: !!annasErr,
+    error: annasErr ? annasErr.message : null,
+  });
 });
 
 // ── POST /api/connectors/annasarchive/download ────────────────────────────────
@@ -613,6 +692,7 @@ router.get('/email', requireAuth, requireAdmin, async (req, res) => {
       notifyOnReport:     doc.notifyOnReport        ?? true,
       notifyOnNewUser:       doc.notifyOnNewUser        ?? true,
       notifyOnDownloadFailed: doc.notifyOnDownloadFailed ?? true,
+      notifyOnProviderIssue: doc.notifyOnProviderIssue  ?? true,
     });
   } catch {
     res.status(500).json({ error: 'Erreur serveur' });
@@ -622,7 +702,7 @@ router.get('/email', requireAuth, requireAdmin, async (req, res) => {
 // ── PUT /api/connectors/email ─────────────────────────────────────────────────
 router.put('/email', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { enabled, notifyOnNewRequest, notifyOnComplete, notifyOnCancel, notifyOnComment, notifyOnReport, notifyOnNewUser, notifyOnDownloadFailed } = req.body;
+    const { enabled, notifyOnNewRequest, notifyOnComplete, notifyOnCancel, notifyOnComment, notifyOnReport, notifyOnNewUser, notifyOnDownloadFailed, notifyOnProviderIssue } = req.body;
     await ConnectorSettings.findOneAndUpdate(
       { service: 'email' },
       {
@@ -634,6 +714,7 @@ router.put('/email', requireAuth, requireAdmin, async (req, res) => {
         notifyOnReport:        !!notifyOnReport,
         notifyOnNewUser:       !!notifyOnNewUser,
         notifyOnDownloadFailed: notifyOnDownloadFailed !== false,
+        notifyOnProviderIssue: notifyOnProviderIssue !== false,
       },
       { upsert: true, new: true }
     );

@@ -745,6 +745,15 @@ const UserDashboard = () => {
                                   <p>{request.reportReason}</p>
                                 </div>
                               )}
+                              {request.status === 'pending' && request.autoDownloadFailed?.at && (
+                                <div className={styles.manualNotice}>
+                                  <span className={styles.manualNoticeLabel}>Traitement manuel</span>
+                                  <p>
+                                    {request.autoDownloadFailed.reason || 'Le téléchargement automatique n\'a pas abouti.'}
+                                    {' '}Un administrateur va s’en occuper manuellement : comptez un délai supplémentaire.
+                                  </p>
+                                </div>
+                              )}
                               {request.statusHistory?.length > 1 && (
                                 <div className={styles.historyBlock}>
                                   <button className={styles.historyToggle} onClick={() => setExpandedHistory(expandedHistory === request._id ? null : request._id)}>
@@ -829,6 +838,11 @@ const UserDashboard = () => {
                      request.status === 'canceled' ? 'Annulée' :
                      request.status === 'reported' ? 'Signalée' : 'En attente'}
                   </span>
+                  {request.status === 'pending' && request.autoDownloadFailed?.at && (
+                    <span className={styles.manualBadge}>
+                      Traitement manuel
+                    </span>
+                  )}
                 </div>
 
                 <p className={styles.requestAuthor}>
@@ -923,7 +937,6 @@ const UserDashboard = () => {
                     <p>{request.reportReason}</p>
                   </div>
                 )}
-
                 {/* Action strip */}
                 <div className={styles.actionStrip}>
                   <div className={styles.actionIcons}>

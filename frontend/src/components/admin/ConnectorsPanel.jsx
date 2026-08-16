@@ -311,6 +311,7 @@ function AnnasArchiveCard() {
   const [saving, setSaving] = useState(false);
   const [alert, setAlert] = useState(null);
   const [annasStatus, setAnnasStatus] = useState(null); // 'ok' | 'error' | null
+  const [annasSearchable, setAnnasSearchable] = useState(true);
 
   useEffect(() => {
     axiosAdmin.get('/api/connectors/annasarchive')
@@ -323,8 +324,13 @@ function AnnasArchiveCard() {
         setConfig(cfg);
         if (cfg.enabled) {
           axiosAdmin.get('/api/connectors/annasarchive/ping')
-            .then(() => setAnnasStatus('ok'))
-            .catch(() => setAnnasStatus('error'));
+            .then(r => {
+              setAnnasStatus('ok');
+              // Le site répond mais /search est challengé : recherche et téléchargement
+              // automatique sont hors service, seul l'accès manuel fonctionne.
+              setAnnasSearchable(r.data.searchable !== false);
+            })
+            .catch(() => { setAnnasStatus('error'); setAnnasSearchable(false); });
         }
       })
       .catch(() => {})
@@ -369,7 +375,7 @@ function AnnasArchiveCard() {
                 <span className={annasStatus === 'ok' ? styles.statusDotOk : styles.statusDotError} title={annasStatus === 'ok' ? 'Joignable' : 'Inaccessible'} />
               )}
             </p>
-            <p className={styles.cardDesc}>Recherche et téléchargement automatique via Anna's Archive. Utilise FlareSolverr pour contourner la protection DDoS. Fallback automatique si Valentine ne trouve pas le livre.</p>
+            <p className={styles.cardDesc}>Recherche et téléchargement automatique via Anna's Archive, en repli si Valentine ne trouve pas le livre. Tente de franchir la protection DDoS-Guard via le solveur, sans succès actuellement : LibGen prend alors le relais.</p>
           </div>
         </div>
         <label className={styles.switch}>
@@ -381,6 +387,21 @@ function AnnasArchiveCard() {
           <span className={styles.slider} />
         </label>
       </div>
+
+      {config.enabled && annasStatus === 'ok' && !annasSearchable && (
+        <div className={styles.solverWarning}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '0.1rem' }}>
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          <span>
+            Le site répond, mais sa protection anti-bot (DDoS-Guard) bloque les requêtes
+            automatisées et le solveur ne parvient pas à la résoudre.
+            <strong> La recherche et le téléchargement automatique sont indisponibles.</strong>
+            {' '}L'accès manuel depuis un navigateur fonctionne toujours, et LibGen prend le
+            relais s'il est activé.
+          </span>
+        </div>
+      )}
 
       <form className={styles.form} onSubmit={handleSave}>
         <div className={styles.fieldRow}>
@@ -425,6 +446,112 @@ function AnnasArchiveCard() {
   );
 }
 
+function LibgenCard() {
+  const [config, setConfig] = useState({ enabled: false, url: 'https://libgen.li' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [alert, setAlert] = useState(null);
+  const [status, setStatus] = useState(null); // 'ok' | 'error' | null
+
+  useEffect(() => {
+    axiosAdmin.get('/api/connectors/libgen')
+      .then(res => {
+        const cfg = {
+          enabled: res.data.enabled ?? false,
+          url: res.data.url || 'https://libgen.li',
+        };
+        setConfig(cfg);
+        if (cfg.enabled) {
+          axiosAdmin.get('/api/connectors/libgen/ping')
+            .then(() => setStatus('ok'))
+            .catch(() => setStatus('error'));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const showAlertMsg = (type, message) => {
+    setAlert({ type, message });
+    setTimeout(() => setAlert(null), 5000);
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await axiosAdmin.put('/api/connectors/libgen', config);
+      showAlertMsg('success', 'Configuration enregistrée.');
+    } catch (err) {
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return (
+    <div className={styles.card}>
+      <div className={styles.cardLoading}><div className={styles.spinner} /></div>
+    </div>
+  );
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <div className={styles.cardBrand}>
+          <div className={`${styles.cardLogoWrap} ${styles.cardLogoWrapAnnas}`}>
+            <span className={styles.annasLogoLetter}>L</span>
+          </div>
+          <div>
+            <p className={styles.cardName}>
+              LibGen
+              {status && (
+                <span className={status === 'ok' ? styles.statusDotOk : styles.statusDotError} title={status === 'ok' ? 'Joignable' : 'Inaccessible'} />
+              )}
+            </p>
+            <p className={styles.cardDesc}>Repli lorsque Anna's Archive est inaccessible (protection DDoS-Guard) : LibGen n'a aucun challenge anti-bot et partage les mêmes empreintes MD5. Couvre les romans et ouvrages, mais pas la BD ni les comics.</p>
+          </div>
+        </div>
+        <label className={styles.switch}>
+          <input
+            type="checkbox"
+            checked={config.enabled}
+            onChange={e => setConfig(c => ({ ...c, enabled: e.target.checked }))}
+          />
+          <span className={styles.slider} />
+        </label>
+      </div>
+
+      <form className={styles.form} onSubmit={handleSave}>
+        <div className={styles.fieldRow}>
+          <label className={styles.fieldLabel}>URL</label>
+          <input
+            className={styles.fieldInput}
+            type="url"
+            placeholder="https://libgen.li"
+            value={config.url}
+            onChange={e => setConfig(c => ({ ...c, url: e.target.value }))}
+          />
+          <p className={styles.fieldHint}>Miroirs de secours : libgen.vg · libgen.la · libgen.bz · libgen.gl</p>
+        </div>
+
+        {alert && (
+          <div className={`${styles.alert} ${alert.type === 'success' ? styles.alertSuccess : styles.alertError}`}>
+            {alert.type === 'success' ? <CheckIcon /> : <AlertIcon />}
+            {alert.message}
+          </div>
+        )}
+
+        <div className={styles.cardActions}>
+          <button type="submit" className={styles.btnPrimary} disabled={saving}>
+            {saving ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function ConnectorsPanel() {
   return (
     <div className={styles.panel}>
@@ -441,6 +568,7 @@ export default function ConnectorsPanel() {
 
       <ValentineCard />
       <AnnasArchiveCard />
+      <LibgenCard />
     </div>
   );
 }

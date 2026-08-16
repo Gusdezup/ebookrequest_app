@@ -22,6 +22,7 @@ const NotificationsConfig = () => {
     notifyOnReport:         true,
     notifyOnNewUser:        false,
     notifyOnDownloadFailed: true,
+    notifyOnProviderIssue:  true,
   });
 
   const NOTIFY_EVENTS = [
@@ -32,6 +33,7 @@ const NotificationsConfig = () => {
     { key: 'notifyOnReport',         label: 'Signalement d\'un problème' },
     { key: 'notifyOnNewUser',        label: 'Nouvel utilisateur inscrit' },
     { key: 'notifyOnDownloadFailed', label: 'Téléchargement automatique échoué' },
+    { key: 'notifyOnProviderIssue',  label: 'Rupture provider (Google Books/Hardcover)' },
   ];
 
   const [emailPrefs, setEmailPrefs] = useState({
@@ -43,6 +45,7 @@ const NotificationsConfig = () => {
     notifyOnReport:         true,
     notifyOnNewUser:        true,
     notifyOnDownloadFailed: true,
+    notifyOnProviderIssue:  true,
   });
 
   const [loading, setLoading] = useState(true);
@@ -68,6 +71,7 @@ const NotificationsConfig = () => {
           notifyOnReport:     e.notifyOnReport      ?? true,
           notifyOnNewUser:        e.notifyOnNewUser        ?? false,
           notifyOnDownloadFailed: e.notifyOnDownloadFailed ?? true,
+          notifyOnProviderIssue:  e.notifyOnProviderIssue  ?? true,
         });
       } catch (error) {
         console.error('Erreur chargement config:', error);
@@ -181,6 +185,7 @@ const NotificationsConfig = () => {
               { key: 'notifyOnReport',         label: 'Signalement d\'un problème' },
               { key: 'notifyOnNewUser',        label: 'Nouvel utilisateur inscrit' },
               { key: 'notifyOnDownloadFailed', label: 'Téléchargement automatique échoué' },
+              { key: 'notifyOnProviderIssue',  label: 'Rupture provider (Google Books/Hardcover)' },
             ].map(({ key, label }) => (
               <label key={key} className={styles.eventRow}>
                 <input

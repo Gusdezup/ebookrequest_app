@@ -61,10 +61,13 @@ async function checkAnnasArchiveConnector() {
   try {
     const config = await getAnnasArchiveConfig();
     if (!config?.enabled) return { enabled: false, connected: false, error: null };
-    await pingAnnasArchive();
-    return { enabled: true, connected: true, error: null };
+    // `searchable` distingue « site joignable » de « réellement utilisable » : la racine
+    // répond 200 même quand /search est protégé par DDoS-Guard, auquel cas recherche et
+    // téléchargement automatique sont hors service.
+    const { reachable, searchable } = await pingAnnasArchive();
+    return { enabled: true, connected: reachable, searchable, error: null };
   } catch (err) {
-    return { enabled: true, connected: false, error: err.message };
+    return { enabled: true, connected: false, searchable: false, error: err.message };
   }
 }
 
@@ -445,6 +448,7 @@ export const getServicesHealth = async (req, res) => {
         annasArchive: {
           enabled: annasArchive.enabled,
           connected: annasArchive.connected,
+          searchable: annasArchive.searchable ?? null,
           error: annasArchive.error || null,
         },
         mcp: {

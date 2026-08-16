@@ -86,6 +86,18 @@ router.post('/search-cache/clear', async (req, res) => {
   }
 });
 
+// Lance immédiatement le check de rupture provider (sans attendre le cron), en forçant
+// l'envoi même si une alerte a déjà été envoyée dans les dernières 24h — pour tester.
+router.post('/provider-health/check-now', async (req, res) => {
+  try {
+    const { runProviderHealthCron } = await import('../services/providerHealthCron.js');
+    await runProviderHealthCron(true);
+    res.json({ success: true, message: 'Vérification effectuée — voir les logs serveur et vos notifications.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Erreur lors de la vérification' });
+  }
+});
+
 router.get('/download-logs', async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);

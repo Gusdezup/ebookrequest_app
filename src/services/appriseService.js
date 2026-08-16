@@ -129,6 +129,15 @@ class AppriseService {
     );
   }
 
+  async notifyProviderIssue(serviceName, message) {
+    const config = await this.getConfig();
+    if (!config?.enabled || !config.notifyOnProviderIssue) return;
+    await this.sendNotification(
+      `⚠️ ${serviceName} — problème détecté`,
+      message
+    );
+  }
+
   async notifyNewUser(username, email) {
     const config = await this.getConfig();
     if (!config?.enabled || !config.notifyOnNewUser) return;

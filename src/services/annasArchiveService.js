@@ -9,6 +9,7 @@ import Notification from '../models/Notification.js';
 import { sendBookCompletedEmail } from './emailService.js';
 import { sendPushToUser } from './webPushService.js';
 import { runPostCompletionHooks } from './postCompletionHooks.js';
+import { getProxyConfig, getProxyAgent } from './proxyConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +18,15 @@ const FALLBACK_URLS = [
   'https://annas-archive.pk',
   'https://annas-archive.gl',
   'https://annas-archive.gd',
+];
+
+// Miroirs libgen utilisés pour reconstruire un lien de téléchargement à partir d'un md5
+// quand la page Anna's Archive est inexploitable (challenge DDoS-Guard). Ces domaines
+// n'ont pas de protection anti-bot. libgen.rs/.is ne répondent plus (vérifié 08/2026).
+const LIBGEN_MIRRORS = [
+  'https://libgen.li',
+  'https://libgen.vg',
+  'https://libgen.la',
 ];
 
 const HEADERS = {
@@ -28,9 +38,42 @@ const HEADERS = {
 
 const FLARESOLVERR_URL = process.env.FLARESOLVERR_URL || 'http://flaresolverr:8191';
 
+// Recherche : le solveur est mono-worker et ne passe pas DDoS-Guard — on borne l'attente
+// pour rendre la main vite au repli LibGen. Le téléchargement, lui, garde un délai plus
+// large : c'est le chemin où le solveur a encore une chance d'être utile.
+const SEARCH_SOLVER_TIMEOUT_MS = 15000;
+
 async function getConfig() {
   const doc = await ConnectorSettings.findOne({ service: 'annasarchive' }).lean();
   return doc || { enabled: false, url: FALLBACK_URLS[0] };
+}
+
+// Exécute une requête axios en tenant compte du proxy sortant configuré (mode 'default' :
+// proxy en priorité avec repli direct ; mode 'fallback' : direct en priorité avec repli
+// proxy) — DDoS-Guard bloque plus volontiers les IP datacenter, une IP résidentielle via
+// le proxy peut aider là où l'accès direct échoue systématiquement.
+async function axiosGetWithProxy(url, axiosOptions, label) {
+  const proxy = await getProxyConfig();
+
+  const direct = () => axios.get(url, axiosOptions);
+  const viaProxy = () => axios.get(url, {
+    ...axiosOptions,
+    httpsAgent: getProxyAgent(proxy.url),
+    proxy: false,
+  });
+
+  if (!proxy.enabled) return direct();
+
+  const secondVia = proxy.mode === 'default' ? 'connexion directe' : 'proxy';
+  const [first, second] = proxy.mode === 'default' ? [viaProxy, direct] : [direct, viaProxy];
+  try {
+    return await first();
+  } catch (err) {
+    console.warn(`[Annas] ${label} échec sans/avec proxy (${err.response?.status || err.code || err.message}), tentative via ${secondVia}`);
+    const result = await second();
+    console.log(`[Annas] ${label} réussi via ${secondVia}`);
+    return result;
+  }
 }
 
 /**
@@ -43,11 +86,11 @@ async function getWorkingUrl(primaryUrl) {
   ];
   return Promise.any(
     candidates.map(url =>
-      axios.get(`${url}/`, {
+      axiosGetWithProxy(`${url}/`, {
         headers: HEADERS,
         timeout: 8000,
         validateStatus: s => s < 500,
-      }).then(res => {
+      }, `getWorkingUrl ${url}`).then(res => {
         if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
         return url;
       })
@@ -195,14 +238,14 @@ function parseDownloadLinks(html, baseUrl) {
     links.push({ type: 'slow', url: `${baseUrl}${m[1]}` });
   }
 
-  // Libgen ads pages (libgen.li/ads.php, libgen.rs/ads.php) — pas de DDoS-Guard, parsing nécessaire
-  const adsPattern = /href="(https?:\/\/(?:libgen\.li|libgen\.rs)[^"]*ads\.php[^"]*)"/g;
+  // Libgen ads pages (ads.php) — pas de DDoS-Guard, parsing nécessaire
+  const adsPattern = /href="(https?:\/\/libgen\.(?:li|vg|la|bz|gl|rs)[^"]*ads\.php[^"]*)"/g;
   for (const m of html.matchAll(adsPattern)) {
     links.push({ type: 'ads', url: m[1] });
   }
 
   // Autres liens partenaires directs (get.php direct, etc.)
-  const extPattern = /href="(https?:\/\/(?:libgen\.li|libgen\.rs|z-lib\.[a-z]+|archive\.org)[^"]*(?:get\.php|download)[^"]*)"/g;
+  const extPattern = /href="(https?:\/\/(?:libgen\.(?:li|vg|la|bz|gl|rs)|z-lib\.[a-z]+|archive\.org)[^"]*(?:get\.php|download)[^"]*)"/g;
   for (const m of html.matchAll(extPattern)) {
     if (!links.some(l => l.url === m[1])) {
       links.push({ type: 'partner', url: m[1] });
@@ -413,16 +456,26 @@ export async function searchOnAnnasArchive(query) {
 
   const baseUrl = await getWorkingUrl((config.url || FALLBACK_URLS[0]).replace(/\/$/, ''));
 
-  const params = { q: query };
-  if (config.lang) params.lang = config.lang;
+  const params = new URLSearchParams({ q: query });
+  if (config.lang) params.set('lang', config.lang);
+  const searchUrl = `${baseUrl}/search?${params.toString()}`;
 
-  const res = await axios.get(`${baseUrl}/search`, {
-    params,
-    headers: HEADERS,
-    timeout: 20000,
-  });
+  let html;
+  try {
+    const res = await axiosGetWithProxy(searchUrl, { headers: HEADERS, timeout: 20000 }, `search "${query}"`);
+    html = res.data;
+  } catch (directErr) {
+    // 403/503 typiques d'une vérification anti-bot (Cloudflare/DDoS-Guard) sur /search —
+    // jusque-là FlareSolverr n'était utilisé qu'au téléchargement, jamais à la recherche.
+    // Timeout court volontairement : aucun solveur libre ne passe DDoS-Guard (FlareSolverr,
+    // Byparr, Trawl testés en 08/2026). On tente quand même au cas où la protection change,
+    // mais sans monopoliser le solveur ni retarder le repli LibGen.
+    console.log(`[Annas] Recherche directe échouée (${directErr.response?.status || directErr.message}), essai solveur (max ${SEARCH_SOLVER_TIMEOUT_MS / 1000}s)…`);
+    const { html: cfHtml } = await cfFetch(searchUrl, SEARCH_SOLVER_TIMEOUT_MS);
+    html = cfHtml;
+  }
 
-  const results = parseResults(res.data, baseUrl);
+  const results = parseResults(html, baseUrl);
   return { results, baseUrl };
 }
 
@@ -469,23 +522,23 @@ export async function downloadFromAnnas(md5, requestId, hintFormat = null) {
 
       console.log(`[Annas] ${downloadLinks.length} lien(s) trouvé(s):`, downloadLinks.map(l => l.type));
 
-      if (downloadLinks.length === 0) {
-        throw new Error('Aucun lien de téléchargement trouvé sur la page MD5');
-      }
-
       // Garder 3 liens slow max + liens ads (libgen ads.php) + liens partner directs
       const slowLinks    = downloadLinks.filter(l => l.type === 'slow').slice(0, 3);
       let adsLinks       = downloadLinks.filter(l => l.type === 'ads');
       const partnerLinks = downloadLinks.filter(l => l.type === 'partner');
 
-      // Si aucun lien ads trouvé (liens partenaires chargés en JS, invisibles en accès direct),
-      // construire directement les URLs partenaires à partir du MD5
+      // Aucun lien ads exploitable : soit chargés en JS (invisibles en accès direct), soit
+      // la page reçue est un challenge DDoS-Guard (0 lien parsé). Dans les deux cas les URLs
+      // libgen se déduisent du md5 seul — ces miroirs n'ont pas de protection anti-bot.
+      // NB : ce repli doit rester AVANT tout abandon, sinon une page challengée fait échouer
+      // le téléchargement alors que libgen aurait répondu.
       if (adsLinks.length === 0) {
-        adsLinks = [
-          { type: 'ads', url: `https://libgen.li/ads.php?md5=${md5}` },
-          { type: 'ads', url: `https://libgen.rs/ads.php?md5=${md5}` },
-        ];
-        console.log(`[Annas] Aucun lien ads dans le HTML — construction URLs libgen/libgen.rs directes`);
+        adsLinks = LIBGEN_MIRRORS.map(m => ({ type: 'ads', url: `${m}/ads.php?md5=${md5}` }));
+        console.log(`[Annas] Aucun lien ads dans le HTML — construction URLs libgen directes`);
+      }
+
+      if (adsLinks.length === 0 && slowLinks.length === 0 && partnerLinks.length === 0) {
+        throw new Error('Aucun lien de téléchargement trouvé sur la page MD5');
       }
 
 
@@ -708,13 +761,30 @@ export async function saveAnnasArchiveConfig({ enabled, url, lang }) {
   return doc;
 }
 
+/**
+ * Vérifie la joignabilité ET l'utilisabilité réelle d'Anna's Archive.
+ * La racine répond 200 même quand /search est protégé par DDoS-Guard : tester seulement
+ * la racine donnait donc un statut « joignable » trompeur alors que recherche et
+ * téléchargement automatique sont hors service.
+ * Retourne { reachable, searchable }.
+ */
 export async function pingAnnasArchive() {
   const config = await getAnnasArchiveConfig();
-  const baseUrl = config.url || FALLBACK_URLS[0];
-  const response = await axios.get(baseUrl, {
-    timeout: 5000,
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-    validateStatus: s => s < 500,
+  const baseUrl = (config.url || FALLBACK_URLS[0]).replace(/\/$/, '');
+
+  // Une seule requête sur /search suffit pour les deux signaux, et tient dans le budget
+  // de 8 s du health check (deux appels séquentiels le dépassaient) :
+  //   · toute réponse HTTP, même 403  → le site est joignable
+  //   · 200 sans page DDoS-Guard      → la recherche est réellement exploitable
+  const probe = await axios.get(`${baseUrl}/search?q=test`, {
+    timeout: 6000,
+    headers: HEADERS,
+    validateStatus: () => true,
   });
-  return response.status < 500;
+
+  const body = typeof probe.data === 'string' ? probe.data : '';
+  return {
+    reachable: true,
+    searchable: probe.status === 200 && !/ddos-guard/i.test(body),
+  };
 }

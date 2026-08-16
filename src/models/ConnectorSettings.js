@@ -19,6 +19,10 @@ const ConnectorSettingsSchema = new mongoose.Schema({
   fromName:   { type: String, default: '' },
   cronInterval: { type: Number, default: 6 },
   valentineFallbackToAdmin: { type: Boolean, default: false },
+  // Anti-spam pour l'alerte "rupture provider" (googleBooks/hardcover) : date de la
+  // dernière alerte envoyée pour CE service, pour ne pas réalerter avant 24h tant que
+  // le problème persiste.
+  lastProviderIssueAlertAt: { type: Date, default: null },
   // Préférences emails admin (service: 'email')
   emailEnabled:          { type: Boolean, default: true },
   notifyOnNewRequest:    { type: Boolean, default: true },
@@ -28,6 +32,7 @@ const ConnectorSettingsSchema = new mongoose.Schema({
   notifyOnReport:        { type: Boolean, default: true },
   notifyOnNewUser:       { type: Boolean, default: true },
   notifyOnDownloadFailed:{ type: Boolean, default: true },
+  notifyOnProviderIssue: { type: Boolean, default: true },
 }, { timestamps: true });
 
 export default mongoose.model('ConnectorSettings', ConnectorSettingsSchema);
