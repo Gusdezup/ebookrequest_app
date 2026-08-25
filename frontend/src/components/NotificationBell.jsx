@@ -24,13 +24,14 @@ const CATEGORIES = [
   { key: 'adminComment', label: 'Message',      adminOnly: false },
   { key: 'reported',     label: 'Signalement', adminOnly: true  },
   { key: 'new_request',  label: 'Demandes',    adminOnly: true  },
+  { key: 'request_completed_admin', label: 'Complétées', adminOnly: true },
   { key: 'userComment',  label: 'Messages',    adminOnly: true  },
   { key: 'update',       label: 'Mise à jour', adminOnly: true  },
   { key: 'config',       label: 'Config',      adminOnly: true  },
 ];
 
 const DASHBOARD_TYPES = new Set(['completed', 'canceled', 'adminComment', 'deleted', 'resolved']);
-const ADMIN_TYPES     = new Set(['reported', 'new_request', 'userComment']);
+const ADMIN_TYPES     = new Set(['reported', 'new_request', 'userComment', 'request_completed_admin']);
 
 const getNotificationText = (n) => {
   if (n.type === 'update')       return null; // handled separately
@@ -58,6 +59,7 @@ const getNotificationIcon = (n) => {
   if (n.type === 'deleted')      return '🗑️';
   if (n.type === 'resolved')     return '✔️';
   if (n.type === 'new_request')  return '📚';
+  if (n.type === 'request_completed_admin') return '✅';
   if (n.type === 'userComment')  return '💬';
   if (n.type === 'update')       return '🔄';
   return '💬';

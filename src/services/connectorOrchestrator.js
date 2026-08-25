@@ -2,11 +2,12 @@ import mongoose from 'mongoose';
 import BookRequest from '../models/BookRequest.js';
 import ConnectorSettings from '../models/ConnectorSettings.js';
 import DownloadLog from '../models/DownloadLog.js';
+import Notification from '../models/Notification.js';
 import { downloadFromValentine } from './valentineService.js';
 import { searchOnAnnasArchive, downloadFromAnnas, getAnnasArchiveConfig } from './annasArchiveService.js';
 import { searchOnLibgen, getLibgenConfig } from './libgenService.js';
 import appriseService from './appriseService.js';
-import { sendDownloadFailedToAdminsEmail, sendKindleDelivery } from './emailService.js';
+import { sendDownloadFailedToAdminsEmail, sendBookCompletedToAdminsEmail, sendKindleDelivery } from './emailService.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -81,6 +82,29 @@ function extractVolumeNumber(title) {
 async function notifyCompletion(bookRequest) {
   try {
     appriseService.notifyBookCompleted(bookRequest).catch(() => {});
+
+    // Email aux admins — complétion (même gate que les autres chemins de complétion)
+    ConnectorSettings.findOne({ service: 'email' }).lean().then(async emailDoc => {
+      const emailEnabled   = emailDoc?.emailEnabled !== false;
+      const notifyOnComplete = emailDoc?.notifyOnComplete !== false;
+      if (!emailEnabled || !notifyOnComplete) return;
+      const AdminUser = mongoose.model('User');
+      const admins = await AdminUser.find({ role: 'admin' }).select('email username emailVerified');
+      admins.filter(a => a.emailVerified && a.email).forEach(admin =>
+        sendBookCompletedToAdminsEmail(admin, bookRequest).catch(() => {}));
+    }).catch(() => {});
+
+    // Notification cloche pour chaque admin
+    mongoose.model('User').find({ role: 'admin' }).select('_id').then(admins => {
+      admins.forEach(admin => Notification.create({
+        user: admin._id,
+        type: 'request_completed_admin',
+        title: bookRequest.title,
+        author: bookRequest.author,
+        message: `"${bookRequest.title}" a été téléchargé automatiquement.`,
+      }).catch(() => {}));
+    }).catch(() => {});
+
     const User = mongoose.model('User');
     const user = await User.findById(bookRequest.user)
       .select('username notificationPreferences kindleEmail emailVerified');

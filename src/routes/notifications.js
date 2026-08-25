@@ -27,7 +27,7 @@ router.get('/history', requireAuth, async (req, res) => {
           { comments: { $elemMatch: { role: 'admin' } } },
         ],
       }).select('title author adminComment comments notifications updatedAt').sort({ updatedAt: -1 }).limit(30),
-      Notification.find({ user: userId, type: { $ne: 'new_request' }, createdAt: { $gte: since } })
+      Notification.find({ user: userId, type: { $nin: ['new_request', 'request_completed_admin'] }, createdAt: { $gte: since } })
         .sort({ createdAt: -1 }).limit(30),
     ]);
 
@@ -114,9 +114,10 @@ router.post('/standalone/:id/seen', requireAuth, async (req, res) => {
 // Notifications admin : signalements non vus + nouvelles demandes
 router.get('/admin/unseen', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const [reportedRequests, newRequestNotifs, userCommentRequests] = await Promise.all([
+    const [reportedRequests, newRequestNotifs, completedNotifs, userCommentRequests] = await Promise.all([
       BookRequest.find({ status: 'reported', reportSeenByAdmin: { $ne: true } }),
       Notification.find({ user: req.user.id, type: 'new_request', seen: false }),
+      Notification.find({ user: req.user.id, type: 'request_completed_admin', seen: false }),
       BookRequest.find({
         'notifications.userComment.seen': { $ne: true },
         comments: { $elemMatch: { role: 'user', seenByAdmin: false } },
@@ -126,6 +127,7 @@ router.get('/admin/unseen', requireAuth, requireAdmin, async (req, res) => {
     const notifications = [
       ...reportedRequests.map(r => ({ type: 'reported', request: r })),
       ...newRequestNotifs.map(n => ({ type: 'new_request', standalone: true, notification: n })),
+      ...completedNotifs.map(n => ({ type: 'request_completed_admin', standalone: true, notification: n })),
       ...userCommentRequests.map(r => ({ type: 'userComment', request: r })),
     ];
 

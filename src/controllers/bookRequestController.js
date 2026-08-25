@@ -441,6 +441,16 @@ export const updateRequestStatus = async (req, res) => {
           admins.filter(a => a.emailVerified && a.email).forEach(admin =>
             sendBookCompletedToAdminsEmail(admin, currentRequest).catch(() => {}));
         }).catch(() => {});
+        // Notification cloche pour chaque admin
+        User.find({ role: 'admin' }).select('_id').then(admins => {
+          admins.forEach(admin => Notification.create({
+            user: admin._id,
+            type: 'request_completed_admin',
+            title: currentRequest.title,
+            author: currentRequest.author,
+            message: `"${currentRequest.title}" est maintenant disponible au téléchargement.`,
+          }).catch(() => {}));
+        }).catch(() => {});
       }
     }
 
@@ -654,6 +664,24 @@ export const addDownloadLink = async (req, res) => {
 
     // Apprise admin global (indépendant de l'existence de l'user)
     appriseService.notifyBookCompleted(request).catch(() => {});
+
+    // Email aux admins — complétion
+    getAdminEmailPrefs().then(async prefs => {
+      if (!prefs.enabled || !prefs.notifyOnComplete) return;
+      const admins = await User.find({ role: 'admin' }).select('email username emailVerified');
+      admins.filter(a => a.emailVerified && a.email).forEach(admin =>
+        sendBookCompletedToAdminsEmail(admin, request).catch(() => {}));
+    }).catch(() => {});
+    // Notification cloche pour chaque admin
+    User.find({ role: 'admin' }).select('_id').then(admins => {
+      admins.forEach(admin => Notification.create({
+        user: admin._id,
+        type: 'request_completed_admin',
+        title: request.title,
+        author: request.author,
+        message: `"${request.title}" est maintenant disponible au téléchargement.`,
+      }).catch(() => {}));
+    }).catch(() => {});
 
     // Post-completion hooks (non-blocking) — only if file is present
     if (request.filePath) {
