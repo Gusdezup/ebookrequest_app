@@ -92,8 +92,8 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 > - `/search`, jusqu'ici accessible en HTTP direct, renvoie désormais un challenge (403) ;
 > - le challenge des pages de téléchargement, que le solveur franchissait auparavant, ne passe plus.
 >
-> Les trois solveurs libres testés en août 2026. FlareSolverr,
-> [Byparr](https://github.com/ThePhaseless/Byparr) et [Trawl](https://github.com/germondai/trawl)
+> Les solveurs libres testés (FlareSolverr, [Byparr](https://github.com/ThePhaseless/Byparr),
+> [Trawl](https://github.com/germondai/trawl), forks basés sur nodriver/undetected-chromedriver)
 > échouent tous : ils ciblent Cloudflare/Akamai/Imperva, pas DDoS-Guard. Le proxy sortant
 > (y compris appliqué au navigateur du solveur) ne change rien.
 >
@@ -207,65 +207,17 @@ services:
       - "host.docker.internal:host-gateway"
 
   flaresolverr:
-    image: ghcr.io/thephaseless/byparr:latest
-    platform: linux/amd64
+    image: anilcancakir/flaresolverr:latest
     container_name: flaresolverr
     restart: unless-stopped
-    shm_size: 512mb
-    environment:
-      - PROXY_SERVER=${BYPARR_PROXY_SERVER:-}
-      - PROXY_USERNAME=${BYPARR_PROXY_USERNAME:-}
-      - PROXY_PASSWORD=${BYPARR_PROXY_PASSWORD:-}
     ports:
       - "8191:8191"
 ```
 
 > Les variables d'environnement sont lues depuis le fichier `.env` placé au même niveau que `docker-compose.yml`.
-
-> **Changement d'image (août 2026) : Byparr remplace FlareSolverr par défaut.** Le solveur livré
-> dans le `docker-compose.yml` était `ghcr.io/flaresolverr/flaresolverr` ; c'est désormais
-> [Byparr](https://github.com/ThePhaseless/Byparr) (`ghcr.io/thephaseless/byparr`).
 >
-> **Seule l'image change aucune modification de code n'a été nécessaire** : Byparr expose la même
-> API `/v1` que FlareSolverr, et le service garde le nom `flaresolverr`, donc
-> `FLARESOLVERR_URL=http://flaresolverr:8191` reste valable et la variable n'est pas à toucher.
-> Revenir à FlareSolverr consiste juste à remettre l'ancienne image dans le compose.
->
-> Deux ajouts propres à Byparr : `shm_size: 512mb` (son navigateur en a besoin) et les variables
-> `BYPARR_PROXY_*`, qui permettent de faire sortir le navigateur du solveur par un proxy, utile
-> car DDoS-Guard bloque plus volontiers les IP datacenter. `platform: linux/amd64` est requis sur ARM64.
->
-> À noter : **aucun solveur libre ne passe actuellement DDoS-Guard** (voir l'avertissement plus haut).
-> Byparr n'a pas été choisi parce qu'il réussit, mais parce qu'il **échoue le plus vite** (8-12 s, là où
-> FlareSolverr part en timeout), ce qui laisse la main au repli LibGen sans faire attendre l'utilisateur.
-
-> [!CAUTION]
-> **Vérifiez vos ressources avant de déployer Byparr.** Il embarque un navigateur complet, ce qui le
-> rend nettement plus gourmand que FlareSolverr :
-> - **Stockage :** l'image pèse plus d'1 Go. Sur un disque presque plein, le téléchargement échoue à
->   mi-parcours et Portainer se contente d'afficher une erreur 500 sans expliquer la cause. Prévoyez
->   au moins 3 Go libres, et vérifiez avec `df -h /` avant de déployer.
-> - **Mémoire :** comptez ~1 Go de RAM disponible pour le conteneur, en plus du reste de la stack.
->   Sur une machine trop juste, le navigateur sature la mémoire et peut faire tomber le serveur
->   entier — SSH compris.
->
-> Sur un petit serveur (VPS 1-2 Go, Raspberry Pi, NAS), **restez sur FlareSolverr** : il est bien plus
-> léger et vous ne perdez aucune capacité, puisque ni l'un ni l'autre ne passe DDoS-Guard et que
-> LibGen prend le relais dans les deux cas. Le seul écart est quelques secondes de délai avant le repli.
->
-> ```yaml
->   flaresolverr:
->     image: ghcr.io/flaresolverr/flaresolverr:latest
->     container_name: flaresolverr
->     restart: unless-stopped
->     environment:
->       - LOG_LEVEL=info
->     ports:
->       - "127.0.0.1:8191:8191"
-> ```
->
-> Dans ce cas, retirez `platform`, `shm_size`, le `healthcheck` et les variables `BYPARR_PROXY_*` :
-> elles sont propres à Byparr et FlareSolverr ne les lit pas.
+> À noter : **aucun solveur libre ne passe actuellement DDoS-Guard** (voir l'avertissement plus haut) —
+> LibGen prend le relais pour la recherche et le téléchargement automatique dans tous les cas.
 
 ### Variables d'environnement
 
@@ -348,10 +300,7 @@ npx web-push generate-vapid-keys
 | `APPRISE_URL` | URL du service Apprise pour les notifications. Par défaut `http://apprise:8000` (conteneur inclus dans le `docker-compose.yml`). Supprimer le service `apprise` du compose si vous hébergez déjà Apprise ailleurs, et renseigner son URL ici. Ne pas ajouter `/notify` le chemin est ajouté automatiquement. Voir [github.com/caronc/apprise-api](https://github.com/caronc/apprise-api). |
 | `APPRISE_CONFIG_PATH` | Chemin local vers le dossier de configuration Apprise (défaut : `./apprise-config`). Nécessaire si `APPRISE_STATEFUL_MODE=simple` est activé sur le conteneur Apprise. |
 | `TZ` | Fuseau horaire des conteneurs (ex : `Europe/Paris`). Utile pour que les logs s'affichent à la bonne heure. |
-| `FLARESOLVERR_URL` | URL du solveur anti-bot, API compatible FlareSolverr — Byparr par défaut (défaut : `http://flaresolverr:8191`) |
-| `BYPARR_PROXY_SERVER` | Proxy sortant du navigateur du solveur, ex. `http://ip:port` (optionnel) |
-| `BYPARR_PROXY_USERNAME` | Identifiant du proxy du solveur (optionnel) |
-| `BYPARR_PROXY_PASSWORD` | Mot de passe du proxy du solveur (optionnel) |
+| `FLARESOLVERR_URL` | URL du solveur anti-bot, API compatible FlareSolverr (défaut : `http://flaresolverr:8191`) |
 | `RSS_FEED_URL` | URL du flux RSS PreDB.me utilisé pour vérifier la disponibilité d'un livre à la soumission (défaut : `https://predb.me/?cats=books-ebooks&rss=1`). |
 | `MCP_PORT` | Port du serveur MCP (défaut : `3035`) |
 | `MCP_URL` | URL publique du serveur MCP (ex : `https://mcp.ndd.fr`). Affichée aux utilisateurs dans les paramètres. Optionnel et si absent, la section MCP est masquée. |
@@ -391,7 +340,7 @@ Si votre IP serveur est throttlée/bloquée par Google Books, Hardcover ou Open 
 
 Le proxy peut être un service tiers ou auto-hébergé (ex : Squid sur un serveur avec une IP résidentielle), avec authentification optionnelle (utilisateur/mot de passe).
 
-Il s'applique aussi aux connecteurs de téléchargement (Anna's Archive, LibGen), ce qui peut débloquer une IP d'hébergeur filtrée par un miroir. À ne pas confondre avec `BYPARR_PROXY_*` : celui-ci ne concerne que le navigateur interne du solveur anti-bot et se configure dans le `.env`, pas dans **Réglages**. Les deux sont indépendants et peuvent viser le même proxy.
+Il s'applique aussi aux connecteurs de téléchargement (Anna's Archive, LibGen), ce qui peut débloquer une IP d'hébergeur filtrée par un miroir.
 
 ### Lancer l'application
 
