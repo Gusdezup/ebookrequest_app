@@ -35,8 +35,10 @@ CLAUDE.md
 
 # Scripts de build dev locaux
 dev-build-backend.sh
-dev-build-frontend.sh@eaDir/
+dev-build-frontend.sh
+@eaDir/
 *@SynoEAStream
 .DS_Store
 docker-compose.test.yml
 test-uploads/
+test-shelf.mjs
