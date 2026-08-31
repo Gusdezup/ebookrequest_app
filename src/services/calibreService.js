@@ -164,9 +164,12 @@ export async function pushToCalibre(user, filePath, bookTitle) {
       } catch {}
     }
   } else {
-    // Calibre-Web Automated : attendre puis lire le flux OPDS (XML pur)
-    console.log('[Calibre] CWA détecté — attente 15s puis lecture OPDS...');
-    await new Promise(r => setTimeout(r, 15000));
+    // Calibre-Web Automated / NextGen : attendre puis lire le flux OPDS (XML pur)
+    // NB (patch) : fenetre elargie (25s + 6 tentatives x 10s = jusqu'a 85s) car
+    // les forks recents type calibre-web-nextgen peuvent mettre plus de temps
+    // a ingerer un livre que le CWA classique pour lequel ce delai avait ete calibre.
+    console.log('[Calibre] CWA détecté — attente 25s puis lecture OPDS...');
+    await new Promise(r => setTimeout(r, 25000));
     const basicAuth = Buffer.from(`${username}:${password}`).toString('base64');
     const patterns = [
       /\/download\/(\d+)\//,
@@ -174,7 +177,9 @@ export async function pushToCalibre(user, filePath, bookTitle) {
       /calibre:(\d+)/,
       /\/opds\/book\/(\d+)/,
     ];
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    const MAX_ATTEMPTS = 6;
+    const RETRY_DELAY_MS = 10000;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         const opdsRes = await axios.get(`${url}/opds/new`, {
           headers: {
@@ -187,7 +192,15 @@ export async function pushToCalibre(user, filePath, bookTitle) {
         if (opdsRes.status === 200 && typeof opdsRes.data === 'string') {
           const xml = opdsRes.data;
 
-          // Chercher d'abord l'entrée dont le <title> correspond au livre uploadé
+          // Chercher l'entrée dont le <title> correspond au livre uploadé.
+          // IMPORTANT (patch) : si AUCUNE entree ne correspond au titre, on
+          // n'attribue PAS d'ID au hasard. L'ancien code repliait sur "le
+          // premier ID trouve dans le flux" quand rien ne matchait, ce qui
+          // pouvait ranger un livre totalement different sur l'etagere
+          // (observe en prod : un roman sans rapport ajoute a la place du
+          // livre reellement demande, simplement parce qu'il etait plus
+          // recent dans le flux OPDS au moment du scan). Mieux vaut un echec
+          // visible dans les logs qu'une mauvaise attribution silencieuse.
           if (bookTitle) {
             const titleNorm = bookTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
             const entryRe = /<entry>([\s\S]*?)<\/entry>/g;
@@ -208,20 +221,17 @@ export async function pushToCalibre(user, filePath, bookTitle) {
               }
             }
           }
-
-          // Fallback : premier ID trouvé dans le feed si pas de correspondance par titre
-          if (!calibreBookId) {
-            for (const pattern of patterns) {
-              const m = xml.match(pattern);
-              if (m) { calibreBookId = parseInt(m[1], 10); break; }
-            }
-          }
+          // (patch) Plus de fallback "premier ID du flux" ici : voir commentaire ci-dessus.
         }
       } catch (err) {
         console.warn(`[Calibre] OPDS erreur: ${err.message}`);
       }
       if (calibreBookId) break;
-      if (attempt < 4) await new Promise(r => setTimeout(r, 8000));
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+    }
+
+    if (!calibreBookId) {
+      console.warn(`[Calibre] Livre "${bookTitle}" introuvable dans le flux OPDS après ${MAX_ATTEMPTS} tentatives — le fichier est bien uploade dans la bibliotheque, mais l'ajout a l'etagere est ignore (aucune correspondance de titre fiable trouvee). Ajout manuel a l'etagere necessaire.`);
     }
   }
 

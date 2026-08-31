@@ -35,4 +35,6 @@ CLAUDE.md
 
 # Scripts de build dev locaux
 dev-build-backend.sh
-dev-build-frontend.sh
+dev-build-frontend.sh@eaDir/
+*@SynoEAStream
+.DS_Store
