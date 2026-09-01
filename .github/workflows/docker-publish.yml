@@ -1,8 +1,11 @@
 name: Docker Build & Publish (fork perso → GHCR)
 
-# Se declenche a chaque push sur main (image "latest") et a chaque tag
-# vX.Y.Z (image versionnee + release GitHub), pour continuer la numerotation
-# semver de zlimteck (dernier tag amont : v1.5.5).
+# - push sur main       : build + publie l'image "latest" sur GHCR
+# - push d'un tag vX.Y.Z : build + publie l'image versionnee + cree une
+#   Release GitHub (changelog auto-genere)
+# - pull_request vers main : build de VALIDATION seulement (pas de publish),
+#   sert de garde-fou pour l'auto-merge -- si le build casse, la PR reste
+#   bloquee au lieu de fusionner en silence.
 
 on:
   push:
@@ -10,6 +13,9 @@ on:
       - main
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - main
 
 env:
   REGISTRY: ghcr.io
@@ -30,6 +36,8 @@ jobs:
         run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
+        # Pas besoin de login pour un build de validation de PR (rien n'est publie)
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -44,6 +52,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=pr
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -54,7 +63,8 @@ jobs:
           context: .
           # DS220+ = Intel Celeron (amd64) : pas besoin d'arm64, ca accelere le build.
           platforms: linux/amd64
-          push: true
+          # Publie seulement en dehors d'une PR (validation de PR = build seul, pas de push)
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
