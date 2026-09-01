@@ -66,31 +66,34 @@ const IconTitle = ({ size = 16 }) => (
 );
 
 const MODE_ICONS = {
+  global: <IconTitle  size={14} />,
   title:  <IconTitle  size={14} />,
   author: <IconAuthor size={14} />,
   series: <IconSeries size={14} />,
 };
 
 const SEARCH_MODES = [
+  { value: 'global', label: 'Recherche globale' },
   { value: 'title',  label: 'Titre'  },
   { value: 'author', label: 'Auteur' },
   { value: 'series', label: 'Série'  },
 ];
 
 const PLACEHOLDERS = {
-  title:  'Titre, auteur + titre ou ISBN…',
+  global: 'Titre, auteur + titre ou ISBN…',
+  title:  'Titre exact (recherche stricte)…',
   author: 'Rechercher par auteur…',
   series: 'Nom de la série…',
 };
 
 const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting = false, batchProgress = null, onSwitchToManual }) => {
-  const [searchMode, setSearchMode]   = useState('title');
+  const [searchMode, setSearchMode]   = useState('global');
   const [value, setValue]             = useState('');
   const [scanning, setScanning]       = useState(false);
   const [selectedBooks, setSelectedBooks] = useState(new Map()); // id → book
 
   const [searchedValue, setSearchedValue] = useState('');
-  const [searchedMode, setSearchedMode]   = useState('title');
+  const [searchedMode, setSearchedMode]   = useState('global');
 
   const [results, setResults]       = useState([]);
   const [totalItems, setTotalItems] = useState(0);
@@ -155,7 +158,14 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
         const params = { maxResults: PER_PAGE, startIndex: (pageNum - 1) * PER_PAGE };
         if (mode === 'author') {
           params.author = trimmed;
+        } else if (mode === 'title') {
+          // Recherche titre STRICT (patch) : limite Google Books au champ
+          // titre (intitle:), contrairement au mode "global" qui accepte
+          // aussi une recherche libre melangeant auteur et titre.
+          params.q = trimmed;
+          params.strictTitle = 'true';
         } else {
+          // mode === 'global'
           params.q        = trimmed;
           params.combined = 'true';
         }
@@ -264,9 +274,9 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
   // ─── Scan code-barres ─────────────────────────────────────────────────────
   const handleBarcodeScan = (isbn) => {
     setScanning(false);
-    setSearchMode('title');
+    setSearchMode('global');
     setValue(isbn);
-    searchBooks(isbn, 'title', 1);
+    searchBooks(isbn, 'global', 1);
   };
 
   const canSubmit     = !isLoading && value.trim().length >= MIN_LEN;
