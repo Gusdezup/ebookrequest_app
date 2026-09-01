@@ -317,6 +317,152 @@ async function searchTitles(baseUrl, cookies, query) {
 }
 
 /**
+ * Search authors by name (autocomplete endpoint, meme route que searchTitles
+ * mais contenu=search_auteurs). Retourne les fiches auteur, PAS les livres —
+ * confirme juste que l'auteur existe sur Valentine.
+ * @returns {Promise<Array>} list of { id, name, url }
+ */
+async function searchAuthors(baseUrl, cookies, query) {
+  await jitter();
+  const res = await axios.get(`${baseUrl}/includes/recherche.php`, {
+    params: { type: 'global', term: query, contenu: 'search_auteurs' },
+    headers: {
+      ...baseHeaders(),
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Cookie': cookieHeader(cookies),
+    },
+    timeout: 20000,
+    validateStatus: () => true,
+  });
+
+  const block = detectBlock(res.status, typeof res.data === 'string' ? res.data : null);
+  if (block) {
+    recordBlock(block);
+    throw new ValentineBlockedError(block);
+  }
+
+  const data = Array.isArray(res.data) ? res.data : [];
+  const results = [];
+  for (const item of data) {
+    if (!item.value || !item.id) continue;
+    if (item.txt?.includes('Cliquez ici')) continue;
+    results.push({ id: String(item.id), name: item.value, url: item.url || '' });
+  }
+  return results;
+}
+
+/**
+ * Search series by name (autocomplete endpoint, meme route, contenu=search_series).
+ * Retourne les fiches serie, PAS les fichiers — un second appel est necessaire
+ * pour lister les tomes/integrales d'une serie (voir listSeriesFiles).
+ * @returns {Promise<Array>} list of { id, name, url }
+ */
+async function searchSeries(baseUrl, cookies, query) {
+  await jitter();
+  const res = await axios.get(`${baseUrl}/includes/recherche.php`, {
+    params: { type: 'global', term: query, contenu: 'search_series' },
+    headers: {
+      ...baseHeaders(),
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Cookie': cookieHeader(cookies),
+    },
+    timeout: 20000,
+    validateStatus: () => true,
+  });
+
+  const block = detectBlock(res.status, typeof res.data === 'string' ? res.data : null);
+  if (block) {
+    recordBlock(block);
+    throw new ValentineBlockedError(block);
+  }
+
+  const data = Array.isArray(res.data) ? res.data : [];
+  const results = [];
+  for (const item of data) {
+    if (!item.value || !item.id) continue;
+    if (item.txt?.includes('Cliquez ici')) continue;
+    results.push({ id: String(item.id), name: item.value, url: item.url || '' });
+  }
+  return results;
+}
+
+/**
+ * Liste tous les fichiers (tomes + intégrales, sans distinction ni filtre —
+ * une intégrale est juste une carte comme les autres) d'une série, à partir
+ * de sa page dédiée (ex: /serie/la-guerre-des-clans). L'ID de chaque livre
+ * est déjà présent dans le HTML (data-id sur la carte), pas besoin d'ouvrir
+ * chaque fiche individuellement pour l'obtenir.
+ * @returns {Promise<Array>} list of { id, title, author, slug }
+ */
+async function listSeriesFiles(baseUrl, cookies, seriesUrl) {
+  await jitter();
+  const res = await axios.get(`${baseUrl}${seriesUrl}`, {
+    headers: { ...baseHeaders(), 'Cookie': cookieHeader(cookies) },
+    timeout: 20000,
+    validateStatus: () => true,
+  });
+
+  const block = detectBlock(res.status, typeof res.data === 'string' ? res.data : null);
+  if (block) {
+    recordBlock(block);
+    throw new ValentineBlockedError(block);
+  }
+
+  const html = typeof res.data === 'string' ? res.data : '';
+  const results = [];
+
+  // Chaque livre est une carte <div ... data-id="X" ... data-slug="Y" ... class="eBookInfo">
+  const cardRe = /<div[^>]*?data-id="(\d+)"[^>]*?data-slug="([^"]*)"[^>]*?class="eBookInfo"[^>]*>/g;
+  let m;
+  while ((m = cardRe.exec(html)) !== null) {
+    const id = m[1];
+    const slug = m[2];
+    // Fenetre de recherche = contenu de cette carte, jusqu'a la carte suivante
+    const windowEnd = html.indexOf('class="eBookInfo"', m.index + m[0].length);
+    const win = html.slice(m.index, windowEnd > -1 ? windowEnd : m.index + 1500);
+
+    const titleMatch = win.match(/<h2 class="title"[^>]*>([\s\S]*?)<\/h2>/);
+    const authorMatch = win.match(/<h3 class="writer">[\s\S]*?>([^<]+)<\/a>/);
+    if (!titleMatch) continue;
+
+    results.push({
+      id,
+      title: titleMatch[1].trim(),
+      author: authorMatch ? authorMatch[1].trim() : null,
+      slug,
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Recherche une série par nom, puis liste tous ses fichiers (tomes +
+ * intégrales) en un seul appel combiné. Prend la meilleure correspondance
+ * (Valentine trie déjà par pertinence).
+ * @returns {Promise<{ series: {id, name, url}|null, files: Array }>}
+ */
+export function searchSeriesFiles(seriesName) {
+  return withValentineLock(async () => {
+    const config = await getConfig();
+    if (!config.enabled || !config.username || !config.password) {
+      throw new Error('Valentine désactivé ou configuration incomplète');
+    }
+    const baseUrl = (config.url || DEFAULT_URL).replace(/\/$/, '');
+    const cookies = await login(baseUrl, config.username, config.password);
+
+    const seriesMatches = await searchSeries(baseUrl, cookies, seriesName);
+    if (seriesMatches.length === 0) return { series: null, files: [] };
+
+    const best = seriesMatches[0];
+    const files = await listSeriesFiles(baseUrl, cookies, best.url);
+    return { series: { id: best.id, name: best.name, url: best.url }, files };
+  });
+}
+
+/**
  * Fetch cover image URL and file size from the ebook modal.
  */
 async function getBookDetails(baseUrl, cookies, bookId) {
@@ -684,6 +830,49 @@ export function searchOnValentine(query) {
     }
 
     return enriched;
+  });
+}
+
+/**
+ * Version allegee de searchOnValentine, SANS l'enrichissement couverture/taille
+ * (qui ajoute 0.8-2.2s de jitter PAR resultat, volontairement lent pour rester
+ * soft avec Valentine). A utiliser quand on veut juste savoir "trouve ou pas"
+ * (ex: verification de disponibilite avant soumission d'une demande), pas pour
+ * un affichage riche — les metadonnees affichees viennent de toute facon de
+ * Google Books/Hardcover, pas de Valentine.
+ *
+ * @param {string} title
+ * @param {string} [author] - optionnel. Utilise UNIQUEMENT en repli si la
+ *   recherche par titre ne renvoie rien — jamais en parallele, pour ne pas
+ *   doubler la charge sur Valentine a chaque verification.
+ * @returns {Promise<{ results: Array, matchType: 'title'|'author'|null }>}
+ */
+export function quickSearchOnValentine(title, author) {
+  return withValentineLock(async () => {
+    const config = await getConfig();
+    if (!config.enabled || !config.username || !config.password) {
+      throw new Error('Valentine désactivé ou configuration incomplète');
+    }
+    const baseUrl = (config.url || DEFAULT_URL).replace(/\/$/, '');
+    const cookies = await login(baseUrl, config.username, config.password);
+
+    const titleResults = await searchTitles(baseUrl, cookies, title);
+    if (titleResults.length > 0) {
+      return { results: titleResults, matchType: 'title' };
+    }
+
+    // Repli auteur : UNE seule requete supplementaire, seulement si le titre
+    // n'a rien donne. Confirme la presence de l'auteur sur Valentine, pas
+    // forcement de ce livre precis — signal plus faible, a traiter comme tel
+    // cote appelant (confiance "medium", pas "high").
+    if (author && author.trim()) {
+      const authorResults = await searchAuthors(baseUrl, cookies, author.trim());
+      if (authorResults.length > 0) {
+        return { results: authorResults, matchType: 'author' };
+      }
+    }
+
+    return { results: [], matchType: null };
   });
 }
 

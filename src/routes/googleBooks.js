@@ -113,8 +113,8 @@ export function clearBooksSearchCache() {
 // `googleEnabled` fait partie de la clé : sans ça, désactiver Google Books ne bust pas
 // les entrées déjà en cache (jusqu'à 5 min) pour une requête identique testée avant/après
 // le changement de réglage, qui continuerait sinon à renvoyer d'anciens résultats Google.
-function getCacheKey(title, author, year, startIndex, limit, googleEnabled) {
-  return `${(title || '').toLowerCase().trim()}|${(author || '').toLowerCase().trim()}|${year || ''}|${startIndex}|${limit}|g${googleEnabled ? 1 : 0}`;
+function getCacheKey(title, author, year, startIndex, limit, googleEnabled, mode = '') {
+  return `${(title || '').toLowerCase().trim()}|${(author || '').toLowerCase().trim()}|${year || ''}|${startIndex}|${limit}|g${googleEnabled ? 1 : 0}|m${mode}`;
 }
 
 /**
@@ -133,11 +133,20 @@ function buildQueries(q) {
 }
 
 /**
- * Recherche combinée "Auteur Titre" sans séparateur.
- * Stratégie : couper après 2 mots (Prénom Nom + Titre),
- * puis après 3 mots (Prénom Nom Composé + Titre), puis brut.
- * Ex : "Virginie Grimaldi D'autres printemps"
- *   → inauthor:"Virginie Grimaldi" intitle:"D'autres printemps"
+ * Recherche combinée "Auteur Titre" sans séparateur, OU simplement un titre
+ * à plusieurs mots (le cas le plus frequent en pratique).
+ *
+ * (patch) Ordre reconstruit : on tente d'abord les hypotheses SANS RISQUE
+ * (tout le texte est le titre), puis seulement en dernier recours les
+ * decoupages "N premiers mots = auteur" — ceux-ci sont une pure supposition
+ * qui echoue silencieusement sur un titre qui n'a pas d'auteur concatene
+ * (ex: "Nous, avant l'innocence" → l'ancien code essayait
+ * inauthor:"Nous, avant" intitle:"l'innocence" EN PREMIER, un faux-auteur
+ * absurde qui pouvait remonter des resultats hors-sujet et empecher
+ * d'essayer la requete brute, qui elle aurait trouve le bon livre).
+ *
+ * Ex (vrai cas auteur+titre) : "Virginie Grimaldi D'autres printemps"
+ *   → en dernier recours : inauthor:"Virginie Grimaldi" intitle:"D'autres printemps"
  */
 function buildCombinedQueries(q) {
   const clean = q.trim();
@@ -151,14 +160,18 @@ function buildCombinedQueries(q) {
   const words = clean.split(/\s+/);
   const queries = [];
 
+  // 1. Hypothese sans risque : tout le texte est le titre
+  queries.push(`intitle:"${clean}"`);
+  // 2. Requete brute (Google gere tres bien les requetes mixtes auteur+titre)
+  queries.push(clean);
+
+  // 3. Dernier recours seulement : deviner un decoupage auteur/titre
   if (words.length >= 3) {
     queries.push(`inauthor:"${words.slice(0, 2).join(' ')}" intitle:"${words.slice(2).join(' ')}"`);
   }
   if (words.length >= 4) {
     queries.push(`inauthor:"${words.slice(0, 3).join(' ')}" intitle:"${words.slice(3).join(' ')}"`);
   }
-  // Fallback brut (Google gère très bien les requêtes mixtes auteur+titre)
-  queries.push(clean);
 
   return queries;
 }
@@ -454,9 +467,13 @@ function extractTomeNumber(volumeInfo) {
   return Infinity;
 }
 
-// Mots-clés qui signalent que ce n'est PAS un tome individuel
+// Mots-clés qui signalent que ce n'est PAS un tome individuel/la série elle-meme
+// (patch) : coffret/integrale RETIRES de cette liste — l'utilisateur les
+// veut au contraire mis en avant (un seul fichier au lieu de N, economise
+// des credits de telechargement sur Valentine). Seuls les a-cotes qui ne
+// sont pas vraiment "un livre de la serie" restent exclus (analyses,
+// guides, etc.).
 const SERIES_EXCLUDE_PATTERNS = [
-  /coffret/i, /intégrale/i, /integrale/i, /box\s*set/i,
   /analyse\s+de\s+l['']oeuvre/i, /fiche\s+de\s+lecture/i,
   /décrypt/i, /decrypt/i, /guide\s+(de|du|des)/i, /companion/i,
   /encyclop/i, /making\s+of/i, /\bcomics?\b/i,
@@ -514,8 +531,9 @@ router.get('/series-tomes', async (req, res) => {
       const title = (b.volumeInfo?.title || '').toLowerCase();
       if (!title.includes(nameLC)) return false;
       if (SERIES_EXCLUDE_PATTERNS.some(p => p.test(b.volumeInfo?.title || ''))) return false;
-      // Exclure les titres avec ";" (plusieurs volumes dans un coffret)
-      if ((b.volumeInfo?.title || '').includes(';')) return false;
+      // NB (patch) : l'ancien filtre excluait aussi les titres contenant ";"
+      // (souvent des coffrets multi-volumes) — retire aussi, meme logique
+      // que ci-dessus : les coffrets/integrales sont desormais les bienvenus.
       return true;
     });
 
@@ -536,7 +554,7 @@ router.get('/series-tomes', async (req, res) => {
 // Recherche de livres via Google Books API
 router.get('/search', async (req, res) => {
   try {
-    const { q, author, combined, maxResults = 10, startIndex = 0 } = req.query;
+    const { q, author, combined, strictTitle, maxResults = 10, startIndex = 0 } = req.query;
 
     if (!q && !author) {
       return res.status(400).json({ message: 'Un titre ou un auteur est requis' });
@@ -549,9 +567,17 @@ router.get('/search', async (req, res) => {
 
     // Pour auteur seul, la clé de cache ignore l'offset (pool complet mis en cache)
     const authorOnly = !!(author?.trim() && !q?.trim());
+    // Discriminant de mode (patch) : evite qu'une meme chaine "q" tapee en
+    // recherche globale et en recherche titre strict ne partagent le meme
+    // cache et ne renvoient l'un a la place de l'autre.
+    const searchModeKey = (q?.trim() && author?.trim()) ? 'both'
+      : authorOnly ? 'author'
+      : combined === 'true' ? 'combined'
+      : strictTitle === 'true' ? 'strict'
+      : 'default';
     const cacheKey   = authorOnly
-      ? getCacheKey(q, author, 'pool', 0, 40, googleEnabled)
-      : getCacheKey(q, author, '', offset, limit, googleEnabled);
+      ? getCacheKey(q, author, 'pool', 0, 40, googleEnabled, searchModeKey)
+      : getCacheKey(q, author, '', offset, limit, googleEnabled, searchModeKey);
 
     // Retourner le cache si valide
     const cached = searchCache.get(cacheKey);
@@ -581,6 +607,16 @@ router.get('/search', async (req, res) => {
       ];
     } else if (combined === 'true' && q?.trim()) {
       queries = buildCombinedQueries(q);
+    } else if (strictTitle === 'true' && q?.trim()) {
+      // Recherche titre STRICT (patch) : contrairement au mode "global" et au
+      // chemin par defaut (buildQueries), qui envoient la chaine brute sans
+      // restriction de champ, ici on force Google Books a ne matcher que sur
+      // le champ titre via l'operateur intitle:.
+      const clean = q.trim();
+      const isbnClean = clean.replace(/[-\s]/g, '');
+      queries = (/^\d{10}$/.test(isbnClean) || /^\d{13}$/.test(isbnClean))
+        ? [`isbn:${isbnClean}`]
+        : [`intitle:"${clean}"`];
     } else {
       queries = buildQueries(q);
     }
@@ -689,9 +725,14 @@ router.get('/search', async (req, res) => {
       const offset       = Math.max(parseInt(req.query.startIndex) || 0, 0);
       const authorOnlyErr = !!(req.query.author?.trim() && !req.query.q?.trim());
       const googleEnabledErr = await isGoogleBooksSearchEnabled();
+      const searchModeKeyErr = (req.query.q?.trim() && req.query.author?.trim()) ? 'both'
+        : authorOnlyErr ? 'author'
+        : req.query.combined === 'true' ? 'combined'
+        : req.query.strictTitle === 'true' ? 'strict'
+        : 'default';
       const cacheKey      = authorOnlyErr
-        ? getCacheKey(req.query.q, req.query.author, 'pool', 0, 40, googleEnabledErr)
-        : getCacheKey(req.query.q, req.query.author, '', offset, limit, googleEnabledErr);
+        ? getCacheKey(req.query.q, req.query.author, 'pool', 0, 40, googleEnabledErr, searchModeKeyErr)
+        : getCacheKey(req.query.q, req.query.author, '', offset, limit, googleEnabledErr, searchModeKeyErr);
       const stale = searchCache.get(cacheKey);
       if (stale) {
         if (authorOnlyErr) {
