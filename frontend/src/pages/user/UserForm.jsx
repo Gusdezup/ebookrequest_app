@@ -136,6 +136,10 @@ function UserForm() {
   const isAdmin = localStorage.getItem('role') === 'admin';
   const [users, setUsers] = useState([]);
   const [targetUserId, setTargetUserId] = useState('');
+  const [calibreEnabled, setCalibreEnabled] = useState(false);
+  const [calibreShelves, setCalibreShelves] = useState([]); // [{ name, isDefault }]
+  const [selectedShelves, setSelectedShelves] = useState([]);
+  const [shelfPickerOpen, setShelfPickerOpen] = useState(false);
 
   // Fonction pour vérifier la disponibilité du livre
   const checkAvailability = useCallback(async (title, author, publishedDate) => {
@@ -172,7 +176,7 @@ function UserForm() {
     const init = async () => {
       if (isMounted) {
           setIsAuthenticated(true);
-          const promises = [fetchExistingRequests(), fetchQuota()];
+          const promises = [fetchExistingRequests(), fetchQuota(), fetchCalibreShelves()];
           if (localStorage.getItem('role') === 'admin') promises.push(fetchUsers());
           // Quota Valentine personnel (silencieux — absent si pas de compte)
           if (localStorage.getItem('role') !== 'admin') {
@@ -221,6 +225,25 @@ function UserForm() {
     } catch (error) {
       console.error('Erreur lors du chargement du quota:', error);
     }
+  };
+
+  // Charger la config Calibre-Web (étagères configurées) pour le sélecteur du
+  // formulaire — reflète toujours le compte du demandeur connecté, pas celui
+  // d'un targetUserId choisi par un admin (pas d'endpoint pour ça côté admin).
+  const fetchCalibreShelves = async () => {
+    try {
+      const res = await axiosAdmin.get('/api/users/calibre');
+      const enabled = res.data?.enabled && Array.isArray(res.data.shelves) && res.data.shelves.length > 0;
+      setCalibreEnabled(enabled);
+      setCalibreShelves(res.data?.shelves || []);
+      setSelectedShelves((res.data?.shelves || []).filter(s => s.isDefault).map(s => s.name));
+    } catch {
+      setCalibreEnabled(false);
+    }
+  };
+
+  const toggleShelf = (name) => {
+    setSelectedShelves(prev => prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]);
   };
 
   // Charger la liste des users (admin uniquement)
@@ -466,7 +489,8 @@ function UserForm() {
       category: form.category || 'ebook',
       ...(selectedBook?.id && { googleBooksId: selectedBook.id }),
       ...(isAdmin && targetUserId && { targetUserId }),
-      ...(seriesInfo && { seriesName: seriesInfo.name, seriesIndex: seriesInfo.index })
+      ...(seriesInfo && { seriesName: seriesInfo.name, seriesIndex: seriesInfo.index }),
+      ...(calibreEnabled && !(isAdmin && targetUserId) && { selectedShelves })
     };
     
     // Validation date de sortie (obligatoire en mode manuel)
@@ -909,7 +933,50 @@ function UserForm() {
             </div>
           </div>
 
-          <div className={styles.formActions}>
+          <div className={styles.formActions} style={{ position: 'relative' }}>
+            {calibreEnabled && !(isAdmin && targetUserId) && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setShelfPickerOpen(o => !o)}
+                  className={styles.cancelButton}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                  title="Choisir les étagères Calibre-Web pour ce livre"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 3v18h18" /><path d="M3 8h18" /><path d="M3 13h18" /><path d="M3 18h18" />
+                  </svg>
+                  Étagères{selectedShelves.length ? ` (${selectedShelves.length})` : ''}
+                </button>
+                {shelfPickerOpen && (
+                  <div
+                    style={{
+                      position: 'absolute', bottom: '100%', left: 0, marginBottom: '0.5rem',
+                      background: 'var(--color-bg3)', border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius)', padding: '0.75rem', minWidth: 220,
+                      zIndex: 20, boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                    }}
+                  >
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)' }}>
+                      Envoyer ce livre vers :
+                    </div>
+                    {calibreShelves.map(s => (
+                      <label key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={selectedShelves.includes(s.name)} onChange={() => toggleShelf(s.name)} />
+                        {s.name}
+                      </label>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setShelfPickerOpen(false)}
+                      style={{ marginTop: '0.5rem', fontSize: '0.78rem', background: 'none', border: 'none', color: 'var(--color-accent, #a78bfa)', cursor: 'pointer', padding: 0 }}
+                    >
+                      Fermer
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <button type="submit" className={styles.submitButton}
               disabled={isSubmitting || (quota && quota.remaining === 0)} aria-busy={isSubmitting}>
               {isSubmitting ? 'Soumission en cours…'

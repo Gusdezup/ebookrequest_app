@@ -1,0 +1,24 @@
+diff --git a/frontend/package.json b/frontend/package.json
+index 8562e50..c66b06e 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "ebook-frontend",
+-  "version": "1.8.0",
++  "version": "1.9.0",
+   "private": true,
+   "dependencies": {
+     "@simplewebauthn/browser": "^13.3.0",
+diff --git a/package.json b/package.json
+index 66fb399..3c4f82a 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "ebookrequest",
+-  "version": "1.8.0",
++  "version": "1.9.0",
+   "description": "EbookRequest — gestion de demandes de livres numériques",
+   "main": "src/index.js",
+   "type": "module",

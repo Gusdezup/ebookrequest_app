@@ -59,12 +59,18 @@ const __dirname = path.dirname(__filename);
 // Création d'une nouvelle demande de livre
 export const createBookRequest = async (req, res) => {
   try {
-    const { author, title, link, thumbnail, description, pageCount, publishedDate, format, category, targetUserId, seriesName, seriesIndex } = req.body;
+    const { author, title, link, thumbnail, description, pageCount, publishedDate, format, category, targetUserId, seriesName, seriesIndex, selectedShelves } = req.body;
     
     // Validation des champs obligatoires
     if (!author || !title) {
       return res.status(400).json({ error: 'Les champs auteur et titre sont obligatoires.' });
     }
+
+    // Étagères choisies dans le sélecteur du formulaire (optionnel — si absent,
+    // les étagères par défaut du profil seront utilisées au moment du push).
+    const cleanedSelectedShelves = Array.isArray(selectedShelves)
+      ? selectedShelves.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim())
+      : undefined;
     
     // Vérification du lien côté backend
     try {
@@ -141,6 +147,7 @@ export const createBookRequest = async (req, res) => {
       seriesIndex: (seriesIndex != null && !isNaN(Number(seriesIndex))) ? Number(seriesIndex) : null,
       format: format || '',
       category: ['ebook', 'comic', 'manga'].includes(category) ? category : 'ebook',
+      ...(cleanedSelectedShelves !== undefined && { selectedShelves: cleanedSelectedShelves }),
       status: isAutoCompleted ? 'completed' : 'pending',
       ...(isAutoCompleted && {
         downloadLink: completedVersion.downloadLink || '',
