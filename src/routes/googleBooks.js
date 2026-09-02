@@ -183,7 +183,14 @@ function sleep(ms) {
 // Nombre de tentatives + backoff pour absorber les erreurs réseau/timeout/429/503 transitoires
 // Les 503 (service indisponible / throttling IP) reçoivent plus de tentatives et un backoff
 // plus long que les autres erreurs, car ils sont souvent liés à un throttling passager côté Google.
-async function withRetry(fn, { retries = 2, label = '' } = {}) {
+//
+// (patch perf) Le plancher de 4 tentatives sur 503 était FIXE, sans exception — même un
+// appelant demandant explicitement 0 retry (nos requêtes de repli spéculatives, voir
+// firstNonEmptyGoogleResult) se voyait imposer jusqu'à 15s de backoff (1+2+4+8s) par
+// requête. Vu qu'une recherche combinée/auteur peut tirer plusieurs requêtes de ce type,
+// ça pouvait multiplier les secondes d'attente pour rien. `boost503` permet maintenant à
+// l'appelant de désactiver ce plancher pour les requêtes non-critiques.
+async function withRetry(fn, { retries = 2, label = '', boost503 = true } = {}) {
   let lastErr;
   let attempt = 0;
   while (true) {
@@ -193,7 +200,7 @@ async function withRetry(fn, { retries = 2, label = '' } = {}) {
       lastErr = err;
       const status = err.response?.status;
       const retryable = !status || status === 429 || status === 503 || err.code === 'ECONNABORTED' || err.code === 'ECONNRESET';
-      const maxRetries = status === 503 ? Math.max(retries, 4) : retries;
+      const maxRetries = (status === 503 && boost503) ? Math.max(retries, 4) : retries;
       if (!retryable || attempt === maxRetries) break;
 
       const retryAfterHeader = err.response?.headers?.['retry-after'];
@@ -238,20 +245,39 @@ async function fetchFromGoogle(queryStr, limit, startIndex = 0, options = {}) {
       items:      response.data.items      || [],
       totalItems: response.data.totalItems || 0,
     };
-  }, { label: `Google Books "${queryStr}"` });
+  }, { label: `Google Books "${queryStr}"`, retries: options.retries, boost503: options.boost503 });
 }
 
 const toHttps = (url) => url ? url.replace(/^http:\/\//, 'https://') : url;
 
-// Lance plusieurs requêtes Google Books en parallèle et retourne le premier résultat non vide,
-// dans l'ordre de priorité des queries (au lieu d'un enchaînement séquentiel bloquant).
+// Retourne le premier résultat non vide, dans l'ordre de priorité des queries.
+//
+// (patch perf) Avant : `Promise.allSettled` tirait TOUTES les queries en parallèle
+// à CHAQUE recherche, même quand la première (la plus fiable) suffisait déjà —
+// jusqu'à 8-12 appels Google Books simultanés pour une simple recherche par auteur
+// avec accents/tirets (voir authorVariants), ou 4 pour une recherche titre combinée.
+// Volume × fréquence de recherche = plus de 429/503 côté Google, qui elle-même
+// déclenche jusqu'à 15s de retry par requête (voir withRetry) — un cercle vicieux
+// qui ralentissait l'app entière, pas juste la recherche en cours.
+//
+// Maintenant : véritable repli séquentiel. La requête prioritaire (index 0) garde
+// son retry complet ; les suivantes — de simples variantes/suppositions de repli,
+// voir authorVariants/buildCombinedQueries — n'en ont pas besoin (retries: 0,
+// boost503: false) puisqu'on abandonne vite pour tenter la suivante plutôt que
+// d'insister sur un repli qui n'est de toute façon qu'une supposition. Dans le cas
+// courant (la requête prioritaire trouve le livre), une seule requête part au lieu
+// de N — les autres ne sont même pas tentées.
 async function firstNonEmptyGoogleResult(queries, limit, startIndex, options) {
-  const settled = await Promise.allSettled(
-    queries.map(q => fetchFromGoogle(q, limit, startIndex, options))
-  );
-  for (let i = 0; i < settled.length; i++) {
-    const s = settled[i];
-    if (s.status === 'fulfilled' && s.value.items.length > 0) return s.value;
+  for (let i = 0; i < queries.length; i++) {
+    try {
+      const result = await fetchFromGoogle(queries[i], limit, startIndex, {
+        ...options,
+        ...(i > 0 && { retries: 0, boost503: false }),
+      });
+      if (result.items.length > 0) return result;
+    } catch (err) {
+      console.warn(`[Books] Requête "${queries[i]}" échouée:`, err.message);
+    }
   }
   return { items: [], totalItems: 0 };
 }

@@ -971,4 +971,33 @@ router.post('/emailprovider/test', requireAuth, requireAdmin, async (req, res) =
   }
 });
 
+// ── GET /api/connectors/trending ──────────────────────────────────────────────
+// Réglage du préchargement du cache "Découvrir" au démarrage du serveur (voir
+// index.js / trendingBooksService.js). Séparé des autres connecteurs (ce n'est
+// pas une source externe) mais suit le même modèle ConnectorSettings pour rester
+// cohérent avec le reste du panel admin.
+router.get('/trending', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const doc = await ConnectorSettings.findOne({ service: 'trending' }).lean();
+    res.json({ preloadOnStartup: doc?.preloadOnStartup !== false });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/trending ──────────────────────────────────────────────
+router.put('/trending', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { preloadOnStartup } = req.body;
+    const doc = await ConnectorSettings.findOneAndUpdate(
+      { service: 'trending' },
+      { preloadOnStartup: !!preloadOnStartup },
+      { upsert: true, new: true, runValidators: true }
+    );
+    res.json({ preloadOnStartup: doc.preloadOnStartup !== false });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 export default router;
