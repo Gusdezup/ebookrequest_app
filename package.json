@@ -1,6 +1,6 @@
 {
   "name": "ebookrequest",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "EbookRequest — gestion de demandes de livres numériques",
   "main": "src/index.js",
   "type": "module",
@@ -10,7 +10,8 @@
     "build:frontend": "cd frontend && npm ci && npm run build",
     "build": "npm run build:frontend",
     "init-admin": "node src/scripts/initAdmin.js",
-    "migrate-reading-list": "node src/scripts/migrateReadingList.js"
+    "migrate-reading-list": "node src/scripts/migrateReadingList.js",
+    "migrate-calibre-shelves": "node src/scripts/migrateCalibreShelves.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
