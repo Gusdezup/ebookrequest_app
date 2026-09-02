@@ -65,11 +65,19 @@ const UserDashboard = () => {
   const [editModal, setEditModal]   = useState(null); // request object
   const [editForm, setEditForm]     = useState({ title: '', author: '', format: '', link: '', publishedDate: '', thumbnail: '' });
   const [editSaving, setEditSaving] = useState(false);
+  const [calibreEnabled, setCalibreEnabled] = useState(false);
+  const [calibreShelves, setCalibreShelves] = useState([]); // [{ name, isDefault }]
+  const [shelfModalRequest, setShelfModalRequest] = useState(null); // request object
+  const [shelfModalSelection, setShelfModalSelection] = useState([]);
+  const [shelfModalSaving, setShelfModalSaving] = useState(false);
+  const [shelfModalChecking, setShelfModalChecking] = useState(false);
+  const [shelfModalError, setShelfModalError] = useState('');
 
   const deleteModalRef  = useFocusTrap(!!deleteModal);
   const editModalRef    = useFocusTrap(!!editModal);
   const commentModalRef = useFocusTrap(!!commentModal);
   const reportModalRef  = useFocusTrap(reportModal.isOpen);
+  const shelfModalRef   = useFocusTrap(!!shelfModalRequest);
 
   const setView = (mode) => {
     setViewMode(mode);
@@ -141,6 +149,76 @@ const UserDashboard = () => {
       toast.error('Erreur lors du chargement de vos demandes');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Config Calibre-Web (juste pour savoir si le bouton "Étagères" doit
+  // apparaître, et avec quelles étagères/défauts le pré-remplir).
+  const fetchCalibreConfig = async () => {
+    try {
+      const res = await axiosAdmin.get('/api/users/calibre');
+      const enabled = res.data?.enabled && Array.isArray(res.data.shelves) && res.data.shelves.length > 0;
+      setCalibreEnabled(enabled);
+      setCalibreShelves(res.data?.shelves || []);
+    } catch {
+      setCalibreEnabled(false);
+    }
+  };
+
+  const openShelfModal = async (request) => {
+    setShelfModalRequest(request);
+    setShelfModalError('');
+    const defaults = calibreShelves.filter(s => s.isDefault).map(s => s.name);
+    const cached = request.selectedShelves !== undefined && request.selectedShelves.length
+      ? request.selectedShelves
+      : defaults;
+
+    // Pré-remplissage optimiste avec le cache le temps de la vérification en direct,
+    // pour ne pas laisser la modale vide pendant l'appel réseau.
+    setShelfModalSelection(cached);
+    setShelfModalChecking(true);
+    try {
+      const res = await axiosAdmin.get(`/api/users/calibre/requests/${request._id}/shelves`);
+      // shelves === null : vérification impossible côté serveur (ou livre pas encore
+      // dans Calibre) — on garde le cache plutôt que d'afficher "aucune étagère" à tort.
+      if (Array.isArray(res.data?.shelves)) {
+        setShelfModalSelection(res.data.shelves);
+      }
+    } catch {
+      // Silencieux — on reste sur le cache, l'utilisateur peut quand même envoyer.
+    } finally {
+      setShelfModalChecking(false);
+    }
+  };
+
+  const toggleShelfModalSelection = (name) => {
+    setShelfModalSelection(prev => prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]);
+  };
+
+  const handleSaveShelves = async () => {
+    if (!shelfModalRequest) return;
+    setShelfModalSaving(true);
+    setShelfModalError('');
+    try {
+      const res = await axiosAdmin.post(`/api/users/calibre/requests/${shelfModalRequest._id}/shelves`, {
+        shelves: shelfModalSelection,
+      });
+      setRequests(prev => prev.map(r => r._id === shelfModalRequest._id
+        ? { ...r, selectedShelves: shelfModalSelection, calibrePush: { ...r.calibrePush, status: res.data.failed?.length ? 'partial' : 'success', calibreBookId: res.data.calibreBookId } }
+        : r));
+      if (res.data.failed?.length) {
+        toast.warning(`Échec sur : ${res.data.failed.map(f => `${f.name} (${f.action === 'remove' ? 'retrait' : 'ajout'})`).join(', ')}`);
+      } else {
+        const parts = [];
+        if (res.data.succeeded?.length) parts.push(`ajouté à ${res.data.succeeded.join(', ')}`);
+        if (res.data.removed?.length) parts.push(`retiré de ${res.data.removed.join(', ')}`);
+        toast.success(parts.length ? `Livre ${parts.join(' — ')}` : 'Sélection d\'étagères inchangée');
+      }
+      setShelfModalRequest(null);
+    } catch (err) {
+      setShelfModalError(err.response?.data?.error || 'Erreur lors de l\'envoi vers les étagères');
+    } finally {
+      setShelfModalSaving(false);
     }
   };
   
@@ -375,6 +453,10 @@ const UserDashboard = () => {
   }, [filter]); // eslint-disable-line
 
   useSocket('request:updated', () => silentRefresh());
+
+  useEffect(() => {
+    fetchCalibreConfig();
+  }, []);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -672,6 +754,13 @@ const UserDashboard = () => {
                                     <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                                   </svg>
                                 </button>
+                                {calibreEnabled && (
+                                  <button className={styles.iconBtn} onClick={() => openShelfModal(request)} title="Envoyer vers des étagères Calibre-Web">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M3 3v18h18"/><path d="M3 8h18"/><path d="M3 13h18"/><path d="M3 18h18"/>
+                                    </svg>
+                                  </button>
+                                )}
                                 <button className={`${styles.iconBtn} ${styles.iconBtnDanger}`} onClick={() => setReportModal({ isOpen: true, requestId: request._id, requestTitle: request.title })} title="Signaler un problème">
                                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
@@ -974,6 +1063,13 @@ const UserDashboard = () => {
                             <line x1="12" y1="15" x2="12" y2="3"/>
                           </svg>
                         </button>
+                        {calibreEnabled && (
+                          <button className={styles.iconBtn} onClick={() => openShelfModal(request)} title="Envoyer vers des étagères Calibre-Web">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M3 3v18h18"/><path d="M3 8h18"/><path d="M3 13h18"/><path d="M3 18h18"/>
+                            </svg>
+                          </button>
+                        )}
                         <button className={`${styles.iconBtn} ${styles.iconBtnDanger}`} onClick={() => setReportModal({ isOpen: true, requestId: request._id, requestTitle: request.title })} title="Signaler un problème">
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
@@ -1067,6 +1163,44 @@ const UserDashboard = () => {
             <div className={styles.modalButtons}>
               <button className={styles.modalCancelButton} onClick={() => setDeleteModal(null)}>Annuler</button>
               <button className={styles.modalDeleteButton} onClick={handleDeleteRequest}>Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal étagères Calibre-Web (a posteriori) */}
+      {shelfModalRequest && (
+        <div className={styles.modalOverlay} onClick={() => !shelfModalSaving && setShelfModalRequest(null)}>
+          <div className={styles.modalContent} ref={shelfModalRef} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Envoyer vers des étagères">
+            <h2>Envoyer vers des étagères</h2>
+            <p className={styles.modalBookTitle}>« {shelfModalRequest.title} »</p>
+            {shelfModalChecking && (
+              <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0.25rem 0 0.75rem' }}>
+                Vérification de l'état réel sur Calibre-Web…
+              </p>
+            )}
+            {calibreShelves.length === 0 ? (
+              <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: '1.25rem' }}>
+                Aucune étagère configurée — ajoutez-en dans les Réglages.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', margin: '1rem 0 1.25rem' }}>
+                {calibreShelves.map(s => (
+                  <label key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={shelfModalSelection.includes(s.name)} onChange={() => toggleShelfModalSelection(s.name)} />
+                    {s.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            {shelfModalError && (
+              <p style={{ fontSize: '0.83rem', color: 'var(--color-danger, #ef4444)', marginBottom: '1rem' }}>{shelfModalError}</p>
+            )}
+            <div className={styles.modalButtons}>
+              <button className={styles.modalCancelButton} onClick={() => setShelfModalRequest(null)} disabled={shelfModalSaving}>Annuler</button>
+              <button className={styles.modalSubmitButton} onClick={handleSaveShelves} disabled={shelfModalSaving || calibreShelves.length === 0}>
+                {shelfModalSaving ? 'Envoi…' : 'Envoyer'}
+              </button>
             </div>
           </div>
         </div>

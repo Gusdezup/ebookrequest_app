@@ -23,12 +23,27 @@ export async function runPostCompletionHooks(request, userId) {
       const relativePath = request.filePath || '';
       const filePath = path.join(__dirname, '../../uploads', relativePath);
 
-      await pushToCalibre(user, filePath, request.title);
+      // Étagères choisies au moment de la demande ; à défaut (anciennes
+      // demandes, ou demande créée avant que l'utilisateur n'ait configuré
+      // d'étagères), on retombe sur les étagères par défaut actuelles.
+      const shelfNames = request.selectedShelves !== undefined
+        ? request.selectedShelves
+        : (user.calibreWeb.shelves || []).filter(s => s.isDefault).map(s => s.name);
+
+      const result = await pushToCalibre(user, filePath, request.title, shelfNames);
+
+      // Upload réussi mais au moins une étagère en échec → 'partial', pour
+      // que le bouton "envoyer vers étagères" puisse cibler juste ce qui manque
+      // sans reproposer un ré-upload complet.
+      const hasShelfFailures = result?.shelfResult?.failed?.length > 0;
 
       request.calibrePush = {
-        status: 'success',
-        error: null,
+        status: hasShelfFailures ? 'partial' : 'success',
+        error: hasShelfFailures
+          ? `Étagère(s) en échec : ${result.shelfResult.failed.map(f => f.name).join(', ')}`
+          : null,
         pushedAt: new Date(),
+        calibreBookId: result?.calibreBookId ?? null,
       };
       await request.save();
     } catch (err) {
@@ -37,6 +52,7 @@ export async function runPostCompletionHooks(request, userId) {
         status: 'failed',
         error: err.message,
         pushedAt: new Date(),
+        calibreBookId: null,
       };
       await request.save();
     }
