@@ -552,6 +552,55 @@ function LibgenCard() {
   );
 }
 
+function TrendingCard() {
+  const [enabled, setEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    axiosAdmin.get('/api/connectors/trending')
+      .then(res => setEnabled(res.data.preloadOnStartup !== false))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return null;
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <div className={styles.cardBrand}>
+          <div className={`${styles.cardLogoWrap} ${styles.cardLogoWrapAnnas}`}>
+            <span className={styles.annasLogoLetter}>D</span>
+          </div>
+          <div>
+            <p className={styles.cardName}>Découvrir</p>
+            <p className={styles.cardDesc}>
+              Précharge les 7 catégories de la page "Découvrir" au démarrage du serveur, pour qu'elle
+              réponde instantanément dès la première visite. Coûte jusqu'à ~70 requêtes Google Books
+              à chaque redémarrage du conteneur (mise à jour, crash, reboot…), même si personne ne
+              consulte la page ce jour-là. Désactiver ici la fait charger à la demande à la place —
+              la première visite du jour absorbe un léger délai, mais zéro requête gaspillée si
+              personne n'y va.
+            </p>
+          </div>
+        </div>
+        <label className={styles.switch}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={async e => {
+              const next = e.target.checked;
+              setEnabled(next);
+              try { await axiosAdmin.put('/api/connectors/trending', { preloadOnStartup: next }); } catch { /* silencieux */ }
+            }}
+          />
+          <span className={styles.slider} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export default function ConnectorsPanel() {
   return (
     <div className={styles.panel}>
@@ -569,6 +618,7 @@ export default function ConnectorsPanel() {
       <ValentineCard />
       <AnnasArchiveCard />
       <LibgenCard />
+      <TrendingCard />
     </div>
   );
 }

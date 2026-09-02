@@ -76,7 +76,7 @@ class AppriseService {
 
   async notifyNewBookRequest(bookRequest, user) {
     const config = await this.getConfig();
-    if (!config?.enabled || !config.notifyOnNewRequest) return;
+    if (!config?.enabled || config.notifyOnNewRequest === false) return;
     await this.sendNotification(
       '📚 Nouvelle demande d\'Ebook',
       `👤 ${user.username} a demandé un nouveau livre :\n\n📖 ${bookRequest.title}\n✍️ ${bookRequest.author}${bookRequest.link ? '\n🔗 ' + bookRequest.link : ''}`
@@ -85,7 +85,7 @@ class AppriseService {
 
   async notifyBookCompleted(bookRequest) {
     const config = await this.getConfig();
-    if (!config?.enabled || !config.notifyOnComplete) return;
+    if (!config?.enabled || config.notifyOnComplete === false) return;
     await this.sendNotification(
       '✅ Livre disponible',
       `📖 "${bookRequest.title}" de ${bookRequest.author}\n👤 Demandé par : ${bookRequest.username}`
@@ -94,7 +94,7 @@ class AppriseService {
 
   async notifyBookCanceled(bookRequest, reason) {
     const config = await this.getConfig();
-    if (!config?.enabled || !config.notifyOnCancel) return;
+    if (!config?.enabled || config.notifyOnCancel === false) return;
     await this.sendNotification(
       '❌ Demande annulée',
       `📖 "${bookRequest.title}"\n👤 Utilisateur : ${bookRequest.username}${reason ? '\n💬 Raison : ' + reason : ''}`
@@ -103,7 +103,7 @@ class AppriseService {
 
   async notifyUserComment(bookRequest, comment) {
     const config = await this.getConfig();
-    if (!config?.enabled || !config.notifyOnComment) return;
+    if (!config?.enabled || config.notifyOnComment === false) return;
     await this.sendNotification(
       '💬 Nouveau commentaire utilisateur',
       `📖 "${bookRequest.title}"\n👤 ${bookRequest.username} : ${comment.substring(0, 200)}`
@@ -112,7 +112,7 @@ class AppriseService {
 
   async notifyReport(bookRequest, reason) {
     const config = await this.getConfig();
-    if (!config?.enabled || !config.notifyOnReport) return;
+    if (!config?.enabled || config.notifyOnReport === false) return;
     await this.sendNotification(
       '⚠️ Signalement d\'un problème',
       `📚 Livre: ${bookRequest.title}\n👤 Utilisateur: ${bookRequest.username}\n⚠️ Raison: ${reason}`
@@ -121,7 +121,7 @@ class AppriseService {
 
   async notifyDownloadFailed(bookRequest, annaUrl) {
     const config = await this.getConfig();
-    if (!config?.enabled || !config.notifyOnDownloadFailed) return;
+    if (!config?.enabled || config.notifyOnDownloadFailed === false) return;
     const link = annaUrl ? `\n🔗 ${annaUrl}` : '';
     await this.sendNotification(
       '⚠️ Téléchargement automatique échoué',
@@ -131,7 +131,7 @@ class AppriseService {
 
   async notifyProviderIssue(serviceName, message) {
     const config = await this.getConfig();
-    if (!config?.enabled || !config.notifyOnProviderIssue) return;
+    if (!config?.enabled || config.notifyOnProviderIssue === false) return;
     await this.sendNotification(
       `⚠️ ${serviceName} — problème détecté`,
       message
@@ -140,7 +140,7 @@ class AppriseService {
 
   async notifyNewUser(username, email) {
     const config = await this.getConfig();
-    if (!config?.enabled || !config.notifyOnNewUser) return;
+    if (!config?.enabled || config.notifyOnNewUser !== true) return;
     await this.sendNotification(
       '👤 Nouvel utilisateur inscrit',
       `${username}${email ? ' — ' + email : ''}`

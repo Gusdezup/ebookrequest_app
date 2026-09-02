@@ -1,10 +1,26 @@
 import Bestseller from '../models/Bestseller.js';
+import TrendingCache from '../models/TrendingCache.js';
+import ConnectorSettings from '../models/ConnectorSettings.js';
 import { findBestBookMatch } from './bookSearchService.js';
 
 // Cache pour les livres tendance par catégorie
 let cachedBooksByCategory = {};
 let lastFetchTimeByCategory = {}; // Timestamp par catégorie
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 heures en millisecondes
+
+// (patch perf) Réglage admin pour activer/désactiver le préchargement des 7
+// catégories au démarrage du serveur (voir index.js). Activé par défaut
+// (`!== false`) pour ne rien changer au comportement existant tant que
+// personne n'y touche explicitement.
+export async function isTrendingPreloadEnabled() {
+  try {
+    const doc = await ConnectorSettings.findOne({ service: 'trending' }).lean();
+    return doc?.preloadOnStartup !== false;
+  } catch (err) {
+    console.warn('[Trending] Lecture réglage preloadOnStartup échouée, préchargement activé par défaut:', err.message);
+    return true;
+  }
+}
 
 // Définition des catégories disponibles
 export const BOOK_CATEGORIES = {
@@ -25,17 +41,51 @@ export async function getTrendingBooks(category = BOOK_CATEGORIES.ALL) {
 
   if (cachedBooksByCategory[category] && categoryLastFetch && (now - categoryLastFetch) < CACHE_DURATION) {
     const remainingTime = Math.round((CACHE_DURATION - (now - categoryLastFetch)) / 1000 / 60 / 60);
-    console.log(`📦 Utilisation du cache pour "${category}" (rafraîchissement dans ${remainingTime}h)`);
+    console.log(`📦 Utilisation du cache mémoire pour "${category}" (rafraîchissement dans ${remainingTime}h)`);
     return cachedBooksByCategory[category];
   }
 
-  // Cache expiré ou inexistant, récupérer de nouvelles données
+  // (patch perf) Cache mémoire absent (redémarrage du conteneur, le cas le plus
+  // fréquent) : avant de re-taper Google Books ~10 fois pour cette catégorie,
+  // vérifier si un cache encore valide existe en base — persistant, lui, à
+  // travers les redémarrages.
+  try {
+    const persisted = await TrendingCache.findOne({ category }).lean();
+    if (persisted && (now - new Date(persisted.fetchedAt).getTime()) < CACHE_DURATION) {
+      const remainingTime = Math.round((CACHE_DURATION - (now - new Date(persisted.fetchedAt).getTime())) / 1000 / 60 / 60);
+      console.log(`💾 Utilisation du cache persistant pour "${category}" (rafraîchissement dans ${remainingTime}h) — pas d'appel Google Books`);
+      cachedBooksByCategory[category] = persisted.books;
+      lastFetchTimeByCategory[category] = new Date(persisted.fetchedAt).getTime();
+      return persisted.books;
+    }
+  } catch (err) {
+    console.warn(`[TrendingCache] Lecture cache persistant échouée pour "${category}":`, err.message);
+  }
+
+  // Cache (mémoire et persistant) expiré ou inexistant, récupérer de nouvelles données
   console.log(`🔄 Récupération de nouveaux livres pour la catégorie "${category}"...`);
   const books = await fetchTrendingBooks(category);
 
-  // Mettre à jour le cache pour cette catégorie spécifique
+  // Mettre à jour le cache mémoire pour cette catégorie spécifique
   cachedBooksByCategory[category] = books;
   lastFetchTimeByCategory[category] = now;
+
+  // (patch) Ne persister que si on a vraiment trouvé quelque chose. Un résultat
+  // vide est presque toujours un échec transitoire (quota épuisé, service down)
+  // et pas "il n'y a vraiment aucun livre tendance" — le figer pour 24h en base
+  // transformerait un pépin passager en panne d'un jour entier pour les
+  // utilisateurs. On retente au prochain appel plutôt que de graver l'échec.
+  if (books.length > 0) {
+    try {
+      await TrendingCache.updateOne(
+        { category },
+        { $set: { books, fetchedAt: new Date(now) } },
+        { upsert: true }
+      );
+    } catch (err) {
+      console.warn(`[TrendingCache] Écriture cache persistant échouée pour "${category}":`, err.message);
+    }
+  }
 
   return books;
 }
@@ -111,7 +161,11 @@ export async function initializeTrendingBooksCache() {
 export function clearTrendingBooksCache() {
   cachedBooksByCategory = {};
   lastFetchTimeByCategory = {};
-  console.log('🗑️  Cache des livres tendance vidé');
+  // Vidage du cache persistant en base — sinon un redémarrage juste après
+  // cette modif resservirait encore les anciennes données depuis Mongo.
+  TrendingCache.deleteMany({}).catch(err =>
+    console.warn('[TrendingCache] Vidage cache persistant échoué:', err.message));
+  console.log('🗑️  Cache des livres tendance vidé (mémoire + persistant)');
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
