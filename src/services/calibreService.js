@@ -164,9 +164,16 @@ export async function pushToCalibre(user, filePath, bookTitle) {
       } catch {}
     }
   } else {
-    // Calibre-Web Automated : attendre puis lire le flux OPDS (XML pur)
-    console.log('[Calibre] CWA détecté — attente 15s puis lecture OPDS...');
-    await new Promise(r => setTimeout(r, 15000));
+    // Calibre-Web Automated / NextGen — v2 (patch) :
+    // Au lieu de scanner /opds/new (fenetre "nouveautes" limitee, qui peut
+    // se faire pousser dehors par d'autres imports arrives entre-temps —
+    // observe en prod), on interroge directement /opds/search/<titre>.
+    // Cette route fait une vraie recherche en base sur toute la bibliotheque
+    // (calibre_db.search_query cote CWNG), donc aucune fenetre temporelle a
+    // rater : le livre est trouvable des qu'il est indexe, quel que soit le
+    // nombre d'autres imports survenus depuis.
+    console.log('[Calibre] CWA détecté — attente 8s puis recherche OPDS par titre...');
+    await new Promise(r => setTimeout(r, 8000));
     const basicAuth = Buffer.from(`${username}:${password}`).toString('base64');
     const patterns = [
       /\/download\/(\d+)\//,
@@ -174,9 +181,29 @@ export async function pushToCalibre(user, filePath, bookTitle) {
       /calibre:(\d+)/,
       /\/opds\/book\/(\d+)/,
     ];
-    for (let attempt = 1; attempt <= 4; attempt++) {
+
+    // Decode les entites XML (&amp; &#39; &#x27; etc.) avant normalisation,
+    // sinon un titre avec apostrophe/esperluette peut laisser des residus
+    // numeriques parasites dans la comparaison (ex: "L'île" mal compare).
+    const decodeXmlEntities = (str) => str
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+      .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)));
+
+    const normalize = (str) => decodeXmlEntities(str).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const MAX_ATTEMPTS = 4;
+    const RETRY_DELAY_MS = 8000;
+    const titleNorm = bookTitle ? normalize(bookTitle) : '';
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        const opdsRes = await axios.get(`${url}/opds/new`, {
+        const searchUrl = `${url}/opds/search/${encodeURIComponent(bookTitle || '')}`;
+        const opdsRes = await axios.get(searchUrl, {
           headers: {
             Authorization: `Basic ${basicAuth}`,
             Accept: 'application/atom+xml, application/xml, text/xml',
@@ -184,46 +211,60 @@ export async function pushToCalibre(user, filePath, bookTitle) {
           timeout: TIMEOUT,
           validateStatus: s => s < 500,
         });
-        if (opdsRes.status === 200 && typeof opdsRes.data === 'string') {
-          const xml = opdsRes.data;
 
-          // Chercher d'abord l'entrée dont le <title> correspond au livre uploadé
-          if (bookTitle) {
-            const titleNorm = bookTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const entryRe = /<entry>([\s\S]*?)<\/entry>/g;
-            let entry;
-            while ((entry = entryRe.exec(xml)) !== null) {
-              const entryXml = entry[1];
-              const titleMatch = entryXml.match(/<title[^>]*>([\s\S]*?)<\/title>/);
-              if (!titleMatch) continue;
-              const entryTitle = titleMatch[1].toLowerCase().replace(/[^a-z0-9]/g, '');
-              // Correspondance si le titre du feed contient au moins 6 caractères du titre recherché
-              const minLen = Math.min(titleNorm.length, 6);
-              if (entryTitle.includes(titleNorm.slice(0, minLen)) || titleNorm.includes(entryTitle.slice(0, minLen))) {
-                for (const pattern of patterns) {
-                  const m = entryXml.match(pattern);
-                  if (m) { calibreBookId = parseInt(m[1], 10); break; }
-                }
-                if (calibreBookId) break;
+        if (opdsRes.status === 200 && typeof opdsRes.data === 'string' && titleNorm) {
+          const xml = opdsRes.data;
+          const entryRe = /<entry>([\s\S]*?)<\/entry>/g;
+          let entry;
+          let bestMatch = null; // { id, exact }
+
+          while ((entry = entryRe.exec(xml)) !== null) {
+            const entryXml = entry[1];
+            const titleMatch = entryXml.match(/<title[^>]*>([\s\S]*?)<\/title>/);
+            if (!titleMatch) continue;
+            const entryTitleNorm = normalize(titleMatch[1]);
+
+            // Le endpoint /opds/search ne renvoie deja que des resultats
+            // pertinents pour ce terme (recherche cote serveur) : on peut se
+            // permettre d'exiger une correspondance stricte (egalite ou
+            // inclusion complete), plutot que le prefixe de 6 caracteres de
+            // l'ancienne version, dangereux pour les series (nombreux tomes
+            // partageant le meme debut de titre).
+            const isExact = entryTitleNorm === titleNorm;
+            const isFullInclusion = entryTitleNorm.includes(titleNorm) || titleNorm.includes(entryTitleNorm);
+
+            if (isExact || (isFullInclusion && !bestMatch)) {
+              let id = null;
+              for (const pattern of patterns) {
+                const m = entryXml.match(pattern);
+                if (m) { id = parseInt(m[1], 10); break; }
+              }
+              if (id) {
+                if (isExact) { bestMatch = { id, exact: true }; break; }
+                if (!bestMatch) bestMatch = { id, exact: false };
               }
             }
           }
 
-          // Fallback : premier ID trouvé dans le feed si pas de correspondance par titre
-          if (!calibreBookId) {
-            for (const pattern of patterns) {
-              const m = xml.match(pattern);
-              if (m) { calibreBookId = parseInt(m[1], 10); break; }
+          if (bestMatch) {
+            calibreBookId = bestMatch.id;
+            if (!bestMatch.exact) {
+              console.warn(`[Calibre] Correspondance partielle (pas exacte) pour "${bookTitle}" — id ${bestMatch.id} retenu par defaut.`);
             }
           }
         }
       } catch (err) {
-        console.warn(`[Calibre] OPDS erreur: ${err.message}`);
+        console.warn(`[Calibre] OPDS search erreur: ${err.message}`);
       }
       if (calibreBookId) break;
-      if (attempt < 4) await new Promise(r => setTimeout(r, 8000));
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+    }
+
+    if (!calibreBookId) {
+      console.warn(`[Calibre] Livre "${bookTitle}" introuvable via /opds/search après ${MAX_ATTEMPTS} tentatives — le fichier est bien uploade dans la bibliotheque, mais l'ajout a l'etagere est ignore (aucune correspondance de titre fiable trouvee). Ajout manuel a l'etagere necessaire.`);
     }
   }
+
 
   // 5. Ajout à l'étagère Kobo si configurée
   if (calibreBookId && cfg.shelfName?.trim()) {
