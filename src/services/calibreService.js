@@ -333,6 +333,65 @@ export async function reconcileShelves(url, cookie, csrfToken, previousNames, ta
 }
 
 /**
+ * Pousse un livre déjà présent dans Calibre (calibreBookId connu) vers les
+ * étagères d'un compte Calibre-Web cible — sans ré-upload. Se connecte avec
+ * les identifiants propres à targetUser (chaque utilisateur a son propre
+ * compte Calibre-Web), vérifie l'appartenance réelle côté serveur pour ne
+ * pas se fier à un état potentiellement périmé, puis réconcilie vers la
+ * sélection demandée. Utilisée pour le multishelf multi-utilisateurs (un
+ * admin poussant un livre vers l'étagère de plusieurs comptes à la fois).
+ * previousShelfNames sert de repli seulement si la vérification en direct
+ * échoue (serveur inaccessible, etc.) — évite un retrait accidentel.
+ * Retourne { succeeded, removed, failed } comme reconcileShelves.
+ */
+export async function pushBookToUserShelves(targetUser, calibreBookId, desiredShelfNames, previousShelfNames = []) {
+  const cfg = targetUser?.calibreWeb;
+  if (!cfg?.enabled || !cfg?.url) {
+    throw new Error('Calibre-Web non configuré ou désactivé pour cet utilisateur');
+  }
+
+  const url = cfg.url.replace(/\/$/, '');
+  const rawPassword = cfg.password || '';
+  const password = decrypt(rawPassword) ?? rawPassword;
+  if (!cfg.username || !password) throw new Error('Identifiants Calibre-Web manquants ou illisibles');
+
+  const cookie = await getSessionCookie(url, cfg.username, password);
+
+  let csrfToken = null;
+  try {
+    const page = await axios.get(`${url}/me`, {
+      headers: { Cookie: cookie },
+      timeout: TIMEOUT,
+      validateStatus: s => s < 500,
+    });
+    const m = (page.data || '').match(/name="csrf_token"[^>]*value="([^"]+)"/);
+    if (m) csrfToken = m[1];
+  } catch {}
+
+  const { shelves: knownShelves, detectedFlavor } = await listShelves(url, cookie, cfg.apiFlavor || '');
+  const liveMembership = await getBookShelfMembership(url, cookie, calibreBookId, {
+    flavorHint: cfg.apiFlavor || detectedFlavor,
+    shelvesWithIds: knownShelves,
+  });
+  const basePrevious = liveMembership !== null ? liveMembership : previousShelfNames;
+
+  return reconcileShelves(url, cookie, csrfToken, basePrevious, desiredShelfNames, calibreBookId);
+}
+
+/**
+ * Résout le calibreBookId d'une demande (déjà connu, sinon retrouvé par
+ * titre) — partagé entre la vérification en direct et l'envoi a posteriori
+ * (self-service et multi-utilisateurs).
+ */
+export async function resolveCalibreBookId(request, url, username, password) {
+  let calibreBookId = request.calibrePush?.calibreBookId || null;
+  if (!calibreBookId) {
+    calibreBookId = await matchCalibreBookId(url, username, password, request.title, { maxAttempts: 1 });
+  }
+  return calibreBookId;
+}
+
+/**
  * Recherche l'ID Calibre d'un livre déjà présent en bibliothèque par titre,
  * via /opds/search (recherche serveur sur toute la base — pas de fenêtre
  * temporelle à rater, contrairement à /opds/new). Utilisé aussi bien lors

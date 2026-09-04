@@ -140,6 +140,10 @@ function UserForm() {
   const [calibreShelves, setCalibreShelves] = useState([]); // [{ name, isDefault }]
   const [selectedShelves, setSelectedShelves] = useState([]);
   const [shelfPickerOpen, setShelfPickerOpen] = useState(false);
+  // Multishelf multi-utilisateurs (admin) — comptes Calibre-Web ciblables en
+  // plus du propriétaire de la demande, et sélection courante par user.
+  const [shelfTargetUsers, setShelfTargetUsers] = useState([]); // [{ _id, username, shelves: [{name,isDefault}] }]
+  const [extraShelfSelections, setExtraShelfSelections] = useState({}); // { [userId]: [shelfName, ...] }
 
   // Fonction pour vérifier la disponibilité du livre
   const checkAvailability = useCallback(async (title, author, publishedDate) => {
@@ -177,7 +181,7 @@ function UserForm() {
       if (isMounted) {
           setIsAuthenticated(true);
           const promises = [fetchExistingRequests(), fetchQuota(), fetchCalibreShelves()];
-          if (localStorage.getItem('role') === 'admin') promises.push(fetchUsers());
+          if (localStorage.getItem('role') === 'admin') { promises.push(fetchUsers()); promises.push(fetchShelfTargets()); }
           // Quota Valentine personnel (silencieux — absent si pas de compte)
           if (localStorage.getItem('role') !== 'admin') {
             axiosAdmin.get('/api/users/valentine/quota')
@@ -254,6 +258,30 @@ function UserForm() {
     } catch (error) {
       console.error('Erreur lors du chargement des utilisateurs:', error);
     }
+  };
+
+  // Comptes Calibre-Web ciblables pour le multishelf multi-utilisateurs
+  // (admin uniquement) — sert à la fois pour les étagères du user cible et
+  // pour la liste des cibles additionnelles.
+  const fetchShelfTargets = async () => {
+    try {
+      const response = await axiosAdmin.get('/api/requests/calibre/shelf-targets');
+      setShelfTargetUsers(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      console.error('Erreur lors du chargement des comptes Calibre-Web:', error);
+    }
+  };
+
+  const toggleExtraShelf = (userId, shelfName) => {
+    setExtraShelfSelections(prev => {
+      const current = prev[userId] || [];
+      const next = current.includes(shelfName)
+        ? current.filter(s => s !== shelfName)
+        : [...current, shelfName];
+      const updated = { ...prev };
+      if (next.length) updated[userId] = next; else delete updated[userId];
+      return updated;
+    });
   };
 
   // Fonction pour charger les demandes existantes de l'utilisateur
@@ -436,6 +464,33 @@ function UserForm() {
     const userId = e.target.value;
     setTargetUserId(userId);
     fetchQuota(userId);
+    setShelfPickerOpen(false);
+
+    // Le nouveau propriétaire ne doit pas rester coché comme cible additionnelle.
+    setExtraShelfSelections(prev => {
+      if (!userId || !prev[userId]) return prev;
+      const { [userId]: _omit, ...rest } = prev;
+      return rest;
+    });
+
+    if (userId) {
+      // Étagères du user cible, plutôt que de désactiver le picker comme avant —
+      // reconstitué depuis /calibre/shelf-targets (l'admin n'a pas accès au
+      // compte du user cible directement).
+      const target = shelfTargetUsers.find(u => u._id === userId);
+      if (target) {
+        setCalibreEnabled(true);
+        setCalibreShelves(target.shelves || []);
+        setSelectedShelves((target.shelves || []).filter(s => s.isDefault).map(s => s.name));
+      } else {
+        setCalibreEnabled(false);
+        setCalibreShelves([]);
+        setSelectedShelves([]);
+      }
+    } else {
+      // Retour à soi-même : recharger sa propre config Calibre-Web.
+      fetchCalibreShelves();
+    }
   };
 
   const handleRemoveBook = () => {
@@ -490,7 +545,12 @@ function UserForm() {
       ...(selectedBook?.id && { googleBooksId: selectedBook.id }),
       ...(isAdmin && targetUserId && { targetUserId }),
       ...(seriesInfo && { seriesName: seriesInfo.name, seriesIndex: seriesInfo.index }),
-      ...(calibreEnabled && !(isAdmin && targetUserId) && { selectedShelves })
+      ...(calibreEnabled && { selectedShelves }),
+      ...(isAdmin && Object.keys(extraShelfSelections).length && {
+        extraShelfTargets: Object.entries(extraShelfSelections)
+          .filter(([, shelves]) => shelves.length)
+          .map(([userId, shelves]) => ({ userId, shelves })),
+      }),
     };
     
     // Validation date de sortie (obligatoire en mode manuel)
@@ -649,6 +709,17 @@ function UserForm() {
     setBatchProgress(null);
     setIsSubmitting(false);
   }, [existingRequests, isAdmin, targetUserId]);
+
+  // Cibles additionnelles disponibles pour le multishelf multi-utilisateurs
+  // (admin uniquement) — tous les comptes Calibre-Web activés sauf celui du
+  // propriétaire actuel de la demande (self ou targetUserId).
+  const currentOwnerUsername = targetUserId
+    ? users.find(u => u._id === targetUserId)?.username
+    : localStorage.getItem('username');
+  const extraTargetCandidates = isAdmin
+    ? shelfTargetUsers.filter(u => u.username !== currentOwnerUsername)
+    : [];
+  const extraShelfCount = Object.values(extraShelfSelections).reduce((n, arr) => n + arr.length, 0);
 
   if (!isAuthenticated) {
     return (
@@ -934,7 +1005,7 @@ function UserForm() {
           </div>
 
           <div className={styles.formActions} style={{ position: 'relative' }}>
-            {calibreEnabled && !(isAdmin && targetUserId) && (
+            {(calibreEnabled || extraTargetCandidates.length > 0) && (
               <div style={{ position: 'relative' }}>
                 <button
                   type="button"
@@ -946,26 +1017,53 @@ function UserForm() {
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M3 3v18h18" /><path d="M3 8h18" /><path d="M3 13h18" /><path d="M3 18h18" />
                   </svg>
-                  Étagères{selectedShelves.length ? ` (${selectedShelves.length})` : ''}
+                  Étagères{(selectedShelves.length + extraShelfCount) ? ` (${selectedShelves.length + extraShelfCount})` : ''}
                 </button>
                 {shelfPickerOpen && (
                   <div
                     style={{
                       position: 'absolute', bottom: '100%', left: 0, marginBottom: '0.5rem',
                       background: 'var(--color-bg3)', border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius)', padding: '0.75rem', minWidth: 220,
+                      borderRadius: 'var(--radius)', padding: '0.75rem', minWidth: 240,
+                      maxHeight: '60vh', overflowY: 'auto',
                       zIndex: 20, boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
                     }}
                   >
-                    <div style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)' }}>
-                      Envoyer ce livre vers :
-                    </div>
-                    {calibreShelves.map(s => (
-                      <label key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', fontSize: '0.85rem', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={selectedShelves.includes(s.name)} onChange={() => toggleShelf(s.name)} />
-                        {s.name}
-                      </label>
-                    ))}
+                    {calibreEnabled && (<>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)' }}>
+                        Envoyer ce livre vers :
+                      </div>
+                      {calibreShelves.map(s => (
+                        <label key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', fontSize: '0.85rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={selectedShelves.includes(s.name)} onChange={() => toggleShelf(s.name)} />
+                          {s.name}
+                        </label>
+                      ))}
+                    </>)}
+                    {extraTargetCandidates.length > 0 && (
+                      <div style={{ marginTop: calibreEnabled ? '0.6rem' : 0, paddingTop: calibreEnabled ? '0.6rem' : 0, borderTop: calibreEnabled ? '1px solid var(--color-border)' : 'none' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--color-text-muted)' }}>
+                          Aussi pour :
+                        </div>
+                        {extraTargetCandidates.map(u => (
+                          <div key={u._id} style={{ marginBottom: '0.4rem' }}>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 500, marginBottom: '0.15rem' }}>{u.username}</div>
+                            {(u.shelves || []).length === 0 ? (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', paddingLeft: '0.5rem' }}>Aucune étagère configurée</div>
+                            ) : u.shelves.map(s => (
+                              <label key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.2rem 0 0.2rem 0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={(extraShelfSelections[u._id] || []).includes(s.name)}
+                                  onChange={() => toggleExtraShelf(u._id, s.name)}
+                                />
+                                {s.name}
+                              </label>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => setShelfPickerOpen(false)}

@@ -72,6 +72,11 @@ const UserDashboard = () => {
   const [shelfModalSaving, setShelfModalSaving] = useState(false);
   const [shelfModalChecking, setShelfModalChecking] = useState(false);
   const [shelfModalError, setShelfModalError] = useState('');
+  // Multishelf multi-utilisateurs (admin) — comptes Calibre-Web ciblables en
+  // plus du propriétaire de la demande, directement depuis "Mes demandes".
+  const isAdmin = localStorage.getItem('role') === 'admin';
+  const [shelfTargetUsers, setShelfTargetUsers] = useState([]); // [{ _id, username, shelves: [{name,isDefault}] }]
+  const [extraShelfSelections, setExtraShelfSelections] = useState({}); // { [userId]: [shelfName, ...] }
 
   const deleteModalRef  = useFocusTrap(!!deleteModal);
   const editModalRef    = useFocusTrap(!!editModal);
@@ -165,6 +170,30 @@ const UserDashboard = () => {
     }
   };
 
+  // Comptes Calibre-Web ciblables pour le multishelf multi-utilisateurs
+  // (admin uniquement) — permet de pousser aussi vers l'étagère d'un autre
+  // utilisateur directement depuis "Mes demandes", sans passer par l'admin.
+  const fetchShelfTargets = async () => {
+    try {
+      const res = await axiosAdmin.get('/api/requests/calibre/shelf-targets');
+      setShelfTargetUsers(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setShelfTargetUsers([]);
+    }
+  };
+
+  const toggleExtraShelf = (userId, shelfName) => {
+    setExtraShelfSelections(prev => {
+      const current = prev[userId] || [];
+      const next = current.includes(shelfName)
+        ? current.filter(s => s !== shelfName)
+        : [...current, shelfName];
+      const updated = { ...prev };
+      if (next.length) updated[userId] = next; else delete updated[userId];
+      return updated;
+    });
+  };
+
   const openShelfModal = async (request) => {
     setShelfModalRequest(request);
     setShelfModalError('');
@@ -176,6 +205,15 @@ const UserDashboard = () => {
     // Pré-remplissage optimiste avec le cache le temps de la vérification en direct,
     // pour ne pas laisser la modale vide pendant l'appel réseau.
     setShelfModalSelection(cached);
+
+    // Pré-remplissage des cibles additionnelles déjà connues sur la demande.
+    const previousExtra = {};
+    (request.extraShelfTargets || []).forEach(t => {
+      const uid = typeof t.user === 'string' ? t.user : t.user?._id || t.user;
+      if (uid) previousExtra[uid] = t.shelves || [];
+    });
+    setExtraShelfSelections(previousExtra);
+
     setShelfModalChecking(true);
     try {
       const res = await axiosAdmin.get(`/api/users/calibre/requests/${request._id}/shelves`);
@@ -203,8 +241,36 @@ const UserDashboard = () => {
       const res = await axiosAdmin.post(`/api/users/calibre/requests/${shelfModalRequest._id}/shelves`, {
         shelves: shelfModalSelection,
       });
+
+      // Cibles additionnelles (admin) — on envoie une cible même à shelves
+      // vides si elle avait une sélection précédente, pour permettre le retrait.
+      let extraResults = null;
+      if (isAdmin) {
+        const extraTargets = shelfTargetUsers
+          .map(u => ({ userId: u._id, shelves: extraShelfSelections[u._id] || [] }))
+          .filter(t => t.shelves.length > 0 || (shelfModalRequest.extraShelfTargets || []).some(e => {
+            const uid = typeof e.user === 'string' ? e.user : e.user?._id || e.user;
+            return uid === t.userId;
+          }));
+        if (extraTargets.length) {
+          try {
+            const extraRes = await axiosAdmin.post(`/api/requests/${shelfModalRequest._id}/extra-shelves`, { targets: extraTargets });
+            extraResults = extraRes.data?.results || [];
+          } catch (err) {
+            toast.warning(err.response?.data?.error || 'Erreur lors de l\'envoi vers les étagères additionnelles');
+          }
+        }
+      }
+
       setRequests(prev => prev.map(r => r._id === shelfModalRequest._id
-        ? { ...r, selectedShelves: shelfModalSelection, calibrePush: { ...r.calibrePush, status: res.data.failed?.length ? 'partial' : 'success', calibreBookId: res.data.calibreBookId } }
+        ? {
+            ...r,
+            selectedShelves: shelfModalSelection,
+            calibrePush: { ...r.calibrePush, status: res.data.failed?.length ? 'partial' : 'success', calibreBookId: res.data.calibreBookId },
+            ...(extraResults && {
+              extraShelfTargets: extraResults.map(er => ({ user: er.userId, username: er.username, shelves: extraShelfSelections[er.userId] || [], status: er.status, error: er.error || null })),
+            }),
+          }
         : r));
       if (res.data.failed?.length) {
         toast.warning(`Échec sur : ${res.data.failed.map(f => `${f.name} (${f.action === 'remove' ? 'retrait' : 'ajout'})`).join(', ')}`);
@@ -213,6 +279,10 @@ const UserDashboard = () => {
         if (res.data.succeeded?.length) parts.push(`ajouté à ${res.data.succeeded.join(', ')}`);
         if (res.data.removed?.length) parts.push(`retiré de ${res.data.removed.join(', ')}`);
         toast.success(parts.length ? `Livre ${parts.join(' — ')}` : 'Sélection d\'étagères inchangée');
+      }
+      if (extraResults?.some(r => r.status === 'failed' || r.status === 'partial')) {
+        const failedNames = extraResults.filter(r => r.status !== 'success').map(r => r.username).join(', ');
+        toast.warning(`Étagères additionnelles — problème pour : ${failedNames}`);
       }
       setShelfModalRequest(null);
     } catch (err) {
@@ -456,6 +526,7 @@ const UserDashboard = () => {
 
   useEffect(() => {
     fetchCalibreConfig();
+    if (isAdmin) fetchShelfTargets();
   }, []);
 
   useEffect(() => {
@@ -524,6 +595,13 @@ const UserDashboard = () => {
       return 0;
     });
   })();
+
+  // Cibles additionnelles disponibles pour le multishelf multi-utilisateurs
+  // (admin uniquement) — tous les comptes Calibre-Web activés sauf soi-même
+  // (propriétaire de toutes les demandes listées ici).
+  const extraTargetCandidates = isAdmin
+    ? shelfTargetUsers.filter(u => u.username !== localStorage.getItem('username'))
+    : [];
 
   return (
     <div className={styles.dashboardContainer}>
@@ -754,7 +832,7 @@ const UserDashboard = () => {
                                     <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                                   </svg>
                                 </button>
-                                {calibreEnabled && (
+                                {(calibreEnabled || extraTargetCandidates.length > 0) && (
                                   <button className={styles.iconBtn} onClick={() => openShelfModal(request)} title="Envoyer vers des étagères Calibre-Web">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                       <path d="M3 3v18h18"/><path d="M3 8h18"/><path d="M3 13h18"/><path d="M3 18h18"/>
@@ -1063,7 +1141,7 @@ const UserDashboard = () => {
                             <line x1="12" y1="15" x2="12" y2="3"/>
                           </svg>
                         </button>
-                        {calibreEnabled && (
+                        {(calibreEnabled || extraTargetCandidates.length > 0) && (
                           <button className={styles.iconBtn} onClick={() => openShelfModal(request)} title="Envoyer vers des étagères Calibre-Web">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M3 3v18h18"/><path d="M3 8h18"/><path d="M3 13h18"/><path d="M3 18h18"/>
@@ -1184,12 +1262,41 @@ const UserDashboard = () => {
                 Aucune étagère configurée — ajoutez-en dans les Réglages.
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', margin: '1rem 0 1.25rem' }}>
-                {calibreShelves.map(s => (
-                  <label key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={shelfModalSelection.includes(s.name)} onChange={() => toggleShelfModalSelection(s.name)} />
-                    {s.name}
-                  </label>
+              <div style={{ margin: '1rem 0 1.25rem' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)' }}>
+                  Mes étagères
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {calibreShelves.map(s => (
+                    <label key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={shelfModalSelection.includes(s.name)} onChange={() => toggleShelfModalSelection(s.name)} />
+                      {s.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {extraTargetCandidates.length > 0 && (
+              <div style={{ margin: calibreShelves.length ? '0 0 1.25rem' : '1rem 0 1.25rem', paddingTop: calibreShelves.length ? '0.75rem' : 0, borderTop: calibreShelves.length ? '1px solid var(--color-border)' : 'none' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)' }}>
+                  Autres étagères
+                </div>
+                {extraTargetCandidates.map(u => (
+                  <div key={u._id} style={{ marginBottom: '0.5rem' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.2rem' }}>Étagères de {u.username} :</div>
+                    {(u.shelves || []).length === 0 ? (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', paddingLeft: '0.5rem' }}>Aucune étagère configurée</div>
+                    ) : u.shelves.map(s => (
+                      <label key={s.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.15rem 0 0.15rem 0.5rem', fontSize: '0.87rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={(extraShelfSelections[u._id] || []).includes(s.name)}
+                          onChange={() => toggleExtraShelf(u._id, s.name)}
+                        />
+                        {s.name}
+                      </label>
+                    ))}
+                  </div>
                 ))}
               </div>
             )}
@@ -1198,7 +1305,7 @@ const UserDashboard = () => {
             )}
             <div className={styles.modalButtons}>
               <button className={styles.modalCancelButton} onClick={() => setShelfModalRequest(null)} disabled={shelfModalSaving}>Annuler</button>
-              <button className={styles.modalSubmitButton} onClick={handleSaveShelves} disabled={shelfModalSaving || calibreShelves.length === 0}>
+              <button className={styles.modalSubmitButton} onClick={handleSaveShelves} disabled={shelfModalSaving || (calibreShelves.length === 0 && extraTargetCandidates.length === 0)}>
                 {shelfModalSaving ? 'Envoi…' : 'Envoyer'}
               </button>
             </div>
