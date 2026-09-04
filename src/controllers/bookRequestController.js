@@ -59,7 +59,7 @@ const __dirname = path.dirname(__filename);
 // Création d'une nouvelle demande de livre
 export const createBookRequest = async (req, res) => {
   try {
-    const { author, title, link, thumbnail, description, pageCount, publishedDate, format, category, targetUserId, seriesName, seriesIndex, selectedShelves } = req.body;
+    const { author, title, link, thumbnail, description, pageCount, publishedDate, format, category, targetUserId, seriesName, seriesIndex, selectedShelves, extraShelfTargets } = req.body;
     
     // Validation des champs obligatoires
     if (!author || !title) {
@@ -71,6 +71,21 @@ export const createBookRequest = async (req, res) => {
     const cleanedSelectedShelves = Array.isArray(selectedShelves)
       ? selectedShelves.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim())
       : undefined;
+
+    // Cibles additionnelles (multishelf multi-utilisateurs) — admin uniquement,
+    // validées et enrichies (username, statut) un peu plus bas une fois
+    // adminUser connu.
+    const rawExtraShelfTargets = Array.isArray(extraShelfTargets)
+      ? extraShelfTargets
+          .filter(t => t?.userId)
+          .map(t => ({
+            userId: String(t.userId),
+            shelves: Array.isArray(t.shelves)
+              ? t.shelves.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim())
+              : [],
+          }))
+          .filter(t => t.shelves.length)
+      : [];
     
     // Vérification du lien côté backend
     try {
@@ -99,6 +114,28 @@ export const createBookRequest = async (req, res) => {
       user = targetUser;
       submittedByAdmin = adminUser._id;
       console.log(`[Admin] ${adminUser.username} soumet une demande pour ${targetUser.username} : "${title}"`);
+    }
+
+    // Résolution des cibles additionnelles (multishelf multi-utilisateurs) —
+    // admin uniquement, et on ignore silencieusement une cible qui serait
+    // le propriétaire lui-même (déjà couvert par selectedShelves).
+    let resolvedExtraShelfTargets = [];
+    if (adminUser.role === 'admin' && rawExtraShelfTargets.length) {
+      const otherTargets = rawExtraShelfTargets.filter(t => t.userId !== user._id.toString());
+      if (otherTargets.length) {
+        const extraUsers = await User.find({ _id: { $in: otherTargets.map(t => t.userId) } });
+        const extraUsersById = new Map(extraUsers.map(u => [u._id.toString(), u]));
+        resolvedExtraShelfTargets = otherTargets
+          .filter(t => extraUsersById.has(t.userId))
+          .map(t => ({
+            user: t.userId,
+            username: extraUsersById.get(t.userId).username,
+            shelves: t.shelves,
+            status: null,
+            error: null,
+            pushedAt: null,
+          }));
+      }
     }
 
     // Vérification du quota de demandes (jours glissants configurables)
@@ -148,6 +185,7 @@ export const createBookRequest = async (req, res) => {
       format: format || '',
       category: ['ebook', 'comic', 'manga'].includes(category) ? category : 'ebook',
       ...(cleanedSelectedShelves !== undefined && { selectedShelves: cleanedSelectedShelves }),
+      ...(resolvedExtraShelfTargets.length && { extraShelfTargets: resolvedExtraShelfTargets }),
       status: isAutoCompleted ? 'completed' : 'pending',
       ...(isAutoCompleted && {
         downloadLink: completedVersion.downloadLink || '',
@@ -231,6 +269,13 @@ export const createBookRequest = async (req, res) => {
             .then(() => console.log(`[Kindle] Envoyé à ${user.kindleEmail} : ${filename}`))
             .catch(e => console.error('[Kindle] Erreur envoi:', e.message));
         }
+      }
+
+      // Post-completion hooks (non-blocking) — même flux que les autres voies
+      // de complétion. Nécessaire notamment pour le push vers les étagères
+      // additionnelles (multishelf multi-utilisateurs) choisies à la création.
+      if (newRequest.filePath) {
+        runPostCompletionHooks(newRequest, newRequest.user).catch(e => console.error('[Calibre]', e.message));
       }
 
       return res.status(201).json(newRequest);
