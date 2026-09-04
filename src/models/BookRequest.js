@@ -146,6 +146,22 @@ const bookRequestSchema = new mongoose.Schema({
     // d'agir directement sans repasser par un upload.
     calibreBookId: { type: Number, default: null },
   },
+  // Étagères additionnelles choisies par un admin pour pousser ce même livre
+  // vers le compte Calibre-Web d'autres utilisateurs (multishelf multi-users,
+  // en plus du push normal vers les étagères de `user`). Chaque cible a son
+  // propre statut : ce sont des comptes Calibre-Web distincts, un échec sur
+  // l'un ne doit pas affecter les autres.
+  extraShelfTargets: {
+    type: [{
+      user:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      username: { type: String, default: '' }, // snapshot pour affichage, même si le compte est supprimé ensuite
+      shelves:  { type: [String], default: [] },
+      status:   { type: String, enum: [null, 'success', 'partial', 'failed'], default: null },
+      error:    { type: String, default: null },
+      pushedAt: { type: Date, default: null },
+    }],
+    default: undefined,
+  },
   reportSeenByAdmin: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
 }, {

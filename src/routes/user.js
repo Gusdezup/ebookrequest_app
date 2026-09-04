@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { updateUserProfile, verifyEmail, getCurrentUser, changePassword, updateAvatar, getUserStats } from '../controllers/userController.js';
 import User from '../models/User.js';
 import { encrypt, decrypt } from '../services/cryptoService.js';
-import { testCalibreConnection, pushToCalibre, getSessionCookie, listShelves, addToShelves, reconcileShelves, matchCalibreBookId, getBookShelfMembership } from '../services/calibreService.js';
+import { testCalibreConnection, pushToCalibre, getSessionCookie, listShelves, addToShelves, reconcileShelves, getBookShelfMembership, resolveCalibreBookId } from '../services/calibreService.js';
 import BookRequest from '../models/BookRequest.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -186,16 +186,6 @@ router.get('/calibre/shelves', requireAuth, async (req, res) => {
     res.status(500).json({ error: err.message || 'Impossible de récupérer les étagères' });
   }
 });
-
-// Résout le calibreBookId d'une demande (déjà connu, sinon retrouvé par
-// titre) — partagé entre la vérification en direct et l'envoi a posteriori.
-async function resolveCalibreBookId(request, url, username, password) {
-  let calibreBookId = request.calibrePush?.calibreBookId || null;
-  if (!calibreBookId) {
-    calibreBookId = await matchCalibreBookId(url, username, password, request.title, { maxAttempts: 1 });
-  }
-  return calibreBookId;
-}
 
 // GET /api/users/calibre/requests/:id/shelves — état réel d'appartenance du
 // livre à ses étagères, interrogé côté serveur Calibre-Web (pas notre propre
