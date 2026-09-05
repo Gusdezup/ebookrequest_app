@@ -113,8 +113,8 @@ export function clearBooksSearchCache() {
 // `googleEnabled` fait partie de la clé : sans ça, désactiver Google Books ne bust pas
 // les entrées déjà en cache (jusqu'à 5 min) pour une requête identique testée avant/après
 // le changement de réglage, qui continuerait sinon à renvoyer d'anciens résultats Google.
-function getCacheKey(title, author, year, startIndex, limit, googleEnabled) {
-  return `${(title || '').toLowerCase().trim()}|${(author || '').toLowerCase().trim()}|${year || ''}|${startIndex}|${limit}|g${googleEnabled ? 1 : 0}`;
+function getCacheKey(title, author, year, startIndex, limit, googleEnabled, mode = '') {
+  return `${(title || '').toLowerCase().trim()}|${(author || '').toLowerCase().trim()}|${year || ''}|${startIndex}|${limit}|g${googleEnabled ? 1 : 0}|m${mode}`;
 }
 
 /**
@@ -133,11 +133,20 @@ function buildQueries(q) {
 }
 
 /**
- * Recherche combinée "Auteur Titre" sans séparateur.
- * Stratégie : couper après 2 mots (Prénom Nom + Titre),
- * puis après 3 mots (Prénom Nom Composé + Titre), puis brut.
- * Ex : "Virginie Grimaldi D'autres printemps"
- *   → inauthor:"Virginie Grimaldi" intitle:"D'autres printemps"
+ * Recherche combinée "Auteur Titre" sans séparateur, OU simplement un titre
+ * à plusieurs mots (le cas le plus frequent en pratique).
+ *
+ * (patch) Ordre reconstruit : on tente d'abord les hypotheses SANS RISQUE
+ * (tout le texte est le titre), puis seulement en dernier recours les
+ * decoupages "N premiers mots = auteur" — ceux-ci sont une pure supposition
+ * qui echoue silencieusement sur un titre qui n'a pas d'auteur concatene
+ * (ex: "Nous, avant l'innocence" → l'ancien code essayait
+ * inauthor:"Nous, avant" intitle:"l'innocence" EN PREMIER, un faux-auteur
+ * absurde qui pouvait remonter des resultats hors-sujet et empecher
+ * d'essayer la requete brute, qui elle aurait trouve le bon livre).
+ *
+ * Ex (vrai cas auteur+titre) : "Virginie Grimaldi D'autres printemps"
+ *   → en dernier recours : inauthor:"Virginie Grimaldi" intitle:"D'autres printemps"
  */
 function buildCombinedQueries(q) {
   const clean = q.trim();
@@ -151,14 +160,18 @@ function buildCombinedQueries(q) {
   const words = clean.split(/\s+/);
   const queries = [];
 
+  // 1. Hypothese sans risque : tout le texte est le titre
+  queries.push(`intitle:"${clean}"`);
+  // 2. Requete brute (Google gere tres bien les requetes mixtes auteur+titre)
+  queries.push(clean);
+
+  // 3. Dernier recours seulement : deviner un decoupage auteur/titre
   if (words.length >= 3) {
     queries.push(`inauthor:"${words.slice(0, 2).join(' ')}" intitle:"${words.slice(2).join(' ')}"`);
   }
   if (words.length >= 4) {
     queries.push(`inauthor:"${words.slice(0, 3).join(' ')}" intitle:"${words.slice(3).join(' ')}"`);
   }
-  // Fallback brut (Google gère très bien les requêtes mixtes auteur+titre)
-  queries.push(clean);
 
   return queries;
 }
@@ -170,7 +183,14 @@ function sleep(ms) {
 // Nombre de tentatives + backoff pour absorber les erreurs réseau/timeout/429/503 transitoires
 // Les 503 (service indisponible / throttling IP) reçoivent plus de tentatives et un backoff
 // plus long que les autres erreurs, car ils sont souvent liés à un throttling passager côté Google.
-async function withRetry(fn, { retries = 2, label = '' } = {}) {
+//
+// (patch perf) Le plancher de 4 tentatives sur 503 était FIXE, sans exception — même un
+// appelant demandant explicitement 0 retry (nos requêtes de repli spéculatives, voir
+// firstNonEmptyGoogleResult) se voyait imposer jusqu'à 15s de backoff (1+2+4+8s) par
+// requête. Vu qu'une recherche combinée/auteur peut tirer plusieurs requêtes de ce type,
+// ça pouvait multiplier les secondes d'attente pour rien. `boost503` permet maintenant à
+// l'appelant de désactiver ce plancher pour les requêtes non-critiques.
+async function withRetry(fn, { retries = 2, label = '', boost503 = true } = {}) {
   let lastErr;
   let attempt = 0;
   while (true) {
@@ -180,7 +200,7 @@ async function withRetry(fn, { retries = 2, label = '' } = {}) {
       lastErr = err;
       const status = err.response?.status;
       const retryable = !status || status === 429 || status === 503 || err.code === 'ECONNABORTED' || err.code === 'ECONNRESET';
-      const maxRetries = status === 503 ? Math.max(retries, 4) : retries;
+      const maxRetries = (status === 503 && boost503) ? Math.max(retries, 4) : retries;
       if (!retryable || attempt === maxRetries) break;
 
       const retryAfterHeader = err.response?.headers?.['retry-after'];
@@ -225,20 +245,39 @@ async function fetchFromGoogle(queryStr, limit, startIndex = 0, options = {}) {
       items:      response.data.items      || [],
       totalItems: response.data.totalItems || 0,
     };
-  }, { label: `Google Books "${queryStr}"` });
+  }, { label: `Google Books "${queryStr}"`, retries: options.retries, boost503: options.boost503 });
 }
 
 const toHttps = (url) => url ? url.replace(/^http:\/\//, 'https://') : url;
 
-// Lance plusieurs requêtes Google Books en parallèle et retourne le premier résultat non vide,
-// dans l'ordre de priorité des queries (au lieu d'un enchaînement séquentiel bloquant).
+// Retourne le premier résultat non vide, dans l'ordre de priorité des queries.
+//
+// (patch perf) Avant : `Promise.allSettled` tirait TOUTES les queries en parallèle
+// à CHAQUE recherche, même quand la première (la plus fiable) suffisait déjà —
+// jusqu'à 8-12 appels Google Books simultanés pour une simple recherche par auteur
+// avec accents/tirets (voir authorVariants), ou 4 pour une recherche titre combinée.
+// Volume × fréquence de recherche = plus de 429/503 côté Google, qui elle-même
+// déclenche jusqu'à 15s de retry par requête (voir withRetry) — un cercle vicieux
+// qui ralentissait l'app entière, pas juste la recherche en cours.
+//
+// Maintenant : véritable repli séquentiel. La requête prioritaire (index 0) garde
+// son retry complet ; les suivantes — de simples variantes/suppositions de repli,
+// voir authorVariants/buildCombinedQueries — n'en ont pas besoin (retries: 0,
+// boost503: false) puisqu'on abandonne vite pour tenter la suivante plutôt que
+// d'insister sur un repli qui n'est de toute façon qu'une supposition. Dans le cas
+// courant (la requête prioritaire trouve le livre), une seule requête part au lieu
+// de N — les autres ne sont même pas tentées.
 async function firstNonEmptyGoogleResult(queries, limit, startIndex, options) {
-  const settled = await Promise.allSettled(
-    queries.map(q => fetchFromGoogle(q, limit, startIndex, options))
-  );
-  for (let i = 0; i < settled.length; i++) {
-    const s = settled[i];
-    if (s.status === 'fulfilled' && s.value.items.length > 0) return s.value;
+  for (let i = 0; i < queries.length; i++) {
+    try {
+      const result = await fetchFromGoogle(queries[i], limit, startIndex, {
+        ...options,
+        ...(i > 0 && { retries: 0, boost503: false }),
+      });
+      if (result.items.length > 0) return result;
+    } catch (err) {
+      console.warn(`[Books] Requête "${queries[i]}" échouée:`, err.message);
+    }
   }
   return { items: [], totalItems: 0 };
 }
@@ -454,9 +493,13 @@ function extractTomeNumber(volumeInfo) {
   return Infinity;
 }
 
-// Mots-clés qui signalent que ce n'est PAS un tome individuel
+// Mots-clés qui signalent que ce n'est PAS un tome individuel/la série elle-meme
+// (patch) : coffret/integrale RETIRES de cette liste — l'utilisateur les
+// veut au contraire mis en avant (un seul fichier au lieu de N, economise
+// des credits de telechargement sur Valentine). Seuls les a-cotes qui ne
+// sont pas vraiment "un livre de la serie" restent exclus (analyses,
+// guides, etc.).
 const SERIES_EXCLUDE_PATTERNS = [
-  /coffret/i, /intégrale/i, /integrale/i, /box\s*set/i,
   /analyse\s+de\s+l['']oeuvre/i, /fiche\s+de\s+lecture/i,
   /décrypt/i, /decrypt/i, /guide\s+(de|du|des)/i, /companion/i,
   /encyclop/i, /making\s+of/i, /\bcomics?\b/i,
@@ -514,8 +557,9 @@ router.get('/series-tomes', async (req, res) => {
       const title = (b.volumeInfo?.title || '').toLowerCase();
       if (!title.includes(nameLC)) return false;
       if (SERIES_EXCLUDE_PATTERNS.some(p => p.test(b.volumeInfo?.title || ''))) return false;
-      // Exclure les titres avec ";" (plusieurs volumes dans un coffret)
-      if ((b.volumeInfo?.title || '').includes(';')) return false;
+      // NB (patch) : l'ancien filtre excluait aussi les titres contenant ";"
+      // (souvent des coffrets multi-volumes) — retire aussi, meme logique
+      // que ci-dessus : les coffrets/integrales sont desormais les bienvenus.
       return true;
     });
 
@@ -536,7 +580,7 @@ router.get('/series-tomes', async (req, res) => {
 // Recherche de livres via Google Books API
 router.get('/search', async (req, res) => {
   try {
-    const { q, author, combined, maxResults = 10, startIndex = 0 } = req.query;
+    const { q, author, combined, strictTitle, maxResults = 10, startIndex = 0 } = req.query;
 
     if (!q && !author) {
       return res.status(400).json({ message: 'Un titre ou un auteur est requis' });
@@ -549,9 +593,17 @@ router.get('/search', async (req, res) => {
 
     // Pour auteur seul, la clé de cache ignore l'offset (pool complet mis en cache)
     const authorOnly = !!(author?.trim() && !q?.trim());
+    // Discriminant de mode (patch) : evite qu'une meme chaine "q" tapee en
+    // recherche globale et en recherche titre strict ne partagent le meme
+    // cache et ne renvoient l'un a la place de l'autre.
+    const searchModeKey = (q?.trim() && author?.trim()) ? 'both'
+      : authorOnly ? 'author'
+      : combined === 'true' ? 'combined'
+      : strictTitle === 'true' ? 'strict'
+      : 'default';
     const cacheKey   = authorOnly
-      ? getCacheKey(q, author, 'pool', 0, 40, googleEnabled)
-      : getCacheKey(q, author, '', offset, limit, googleEnabled);
+      ? getCacheKey(q, author, 'pool', 0, 40, googleEnabled, searchModeKey)
+      : getCacheKey(q, author, '', offset, limit, googleEnabled, searchModeKey);
 
     // Retourner le cache si valide
     const cached = searchCache.get(cacheKey);
@@ -581,6 +633,16 @@ router.get('/search', async (req, res) => {
       ];
     } else if (combined === 'true' && q?.trim()) {
       queries = buildCombinedQueries(q);
+    } else if (strictTitle === 'true' && q?.trim()) {
+      // Recherche titre STRICT (patch) : contrairement au mode "global" et au
+      // chemin par defaut (buildQueries), qui envoient la chaine brute sans
+      // restriction de champ, ici on force Google Books a ne matcher que sur
+      // le champ titre via l'operateur intitle:.
+      const clean = q.trim();
+      const isbnClean = clean.replace(/[-\s]/g, '');
+      queries = (/^\d{10}$/.test(isbnClean) || /^\d{13}$/.test(isbnClean))
+        ? [`isbn:${isbnClean}`]
+        : [`intitle:"${clean}"`];
     } else {
       queries = buildQueries(q);
     }
@@ -689,9 +751,14 @@ router.get('/search', async (req, res) => {
       const offset       = Math.max(parseInt(req.query.startIndex) || 0, 0);
       const authorOnlyErr = !!(req.query.author?.trim() && !req.query.q?.trim());
       const googleEnabledErr = await isGoogleBooksSearchEnabled();
+      const searchModeKeyErr = (req.query.q?.trim() && req.query.author?.trim()) ? 'both'
+        : authorOnlyErr ? 'author'
+        : req.query.combined === 'true' ? 'combined'
+        : req.query.strictTitle === 'true' ? 'strict'
+        : 'default';
       const cacheKey      = authorOnlyErr
-        ? getCacheKey(req.query.q, req.query.author, 'pool', 0, 40, googleEnabledErr)
-        : getCacheKey(req.query.q, req.query.author, '', offset, limit, googleEnabledErr);
+        ? getCacheKey(req.query.q, req.query.author, 'pool', 0, 40, googleEnabledErr, searchModeKeyErr)
+        : getCacheKey(req.query.q, req.query.author, '', offset, limit, googleEnabledErr, searchModeKeyErr);
       const stale = searchCache.get(cacheKey);
       if (stale) {
         if (authorOnlyErr) {

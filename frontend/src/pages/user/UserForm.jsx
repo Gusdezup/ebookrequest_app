@@ -138,7 +138,7 @@ function UserForm() {
   const [targetUserId, setTargetUserId] = useState('');
 
   // Fonction pour vérifier la disponibilité du livre
-  const checkAvailability = useCallback(async (title, author) => {
+  const checkAvailability = useCallback(async (title, author, publishedDate) => {
     if (!title || !author) return;
 
     setCheckingAvailability(true);
@@ -147,7 +147,8 @@ function UserForm() {
     try {
       const response = await axiosAdmin.post('/api/availability/check', {
         title,
-        author
+        author,
+        ...(publishedDate ? { publishedDate } : {}),
       });
 
       if (response.data.success) {
@@ -197,7 +198,7 @@ function UserForm() {
 
             // Vérifier la disponibilité et les doublons si on a un titre et un auteur
             if (prefill.title && prefill.author) {
-              checkAvailability(prefill.title, prefill.author);
+              checkAvailability(prefill.title, prefill.author, prefill.publishedDate);
             }
           }
       }
@@ -347,6 +348,10 @@ function UserForm() {
     }
 
     // Si on arrive ici, c'est qu'il n'y a pas de doublon
+    // (patch) : nettoyer un eventuel message d'erreur laisse par une
+    // selection precedente (ex: "deja demande" sur un AUTRE livre), sinon il
+    // reste affiche indefiniment sur les selections suivantes valides.
+    setMessage({ text: '', type: '' });
     setSelectedBook(book);
 
     // Mettre à jour le formulaire avec les informations du livre
@@ -395,7 +400,7 @@ function UserForm() {
       }));
 
       // Vérifier la disponibilité
-      checkAvailability(title, author);
+      checkAvailability(title, author, book.volumeInfo.publishedDate);
 
       // Basculer sur le formulaire manuel pour permettre les modifications
       setSearchMode('manual');

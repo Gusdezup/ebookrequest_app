@@ -33,6 +33,8 @@ const ConnectorSettingsSchema = new mongoose.Schema({
   notifyOnNewUser:       { type: Boolean, default: true },
   notifyOnDownloadFailed:{ type: Boolean, default: true },
   notifyOnProviderIssue: { type: Boolean, default: true },
+  // Préchargement au démarrage du cache "Découvrir"/tendances (service: 'trending')
+  preloadOnStartup: { type: Boolean, default: true },
 }, { timestamps: true });
 
 export default mongoose.model('ConnectorSettings', ConnectorSettingsSchema);

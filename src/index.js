@@ -46,8 +46,8 @@ import passkeyRoutes from './routes/passkey.js';
 import sessionsRoutes from './routes/sessions.js';
 import activityTracker from './middleware/activityTracker.js';
 import { createRequire } from 'module';
-import { initializeTrendingBooksCache } from './services/trendingBooksService.js';
 import { startValentineCron } from './services/valentineCron.js';
+import { initializeTrendingBooksCache, isTrendingPreloadEnabled } from './services/trendingBooksService.js';
 import { startHardcoverSyncCron } from './services/hardcoverSyncCron.js';
 import { startProviderHealthCron } from './services/providerHealthCron.js';
 import { initSocket } from './services/socketService.js';
@@ -214,8 +214,20 @@ mongoose.connect(process.env.MONGODB_URI, {
   httpServer.listen(PORT, () => {
     console.log(`Serveur backend lancé sur le port ${PORT}`);
 
-    // Initialiser le cache des livres tendance au démarrage (sans bloquer le serveur)
-    initializeTrendingBooksCache();
+    // (patch perf) Préchargement au démarrage rendu optionnel — coûtait jusqu'à
+    // ~70 appels Google Books (7 catégories × jusqu'à 10 livres) à CHAQUE
+    // redémarrage du conteneur, même si le cache (désormais persistant en base,
+    // voir trendingBooksService.js) était encore parfaitement valide. Activé par
+    // défaut pour ne rien changer au comportement existant ; désactivable via
+    // ConnectorSettings (service: 'trending', preloadOnStartup: false) — voir
+    // isTrendingPreloadEnabled(). Que ce soit activé ou non, getTrendingBooks()
+    // reste de toute façon appelée à la demande par /api/trending : la
+    // désactivation ne fait que retarder le premier fetch jusqu'à la première
+    // vraie visite de la page "Découvrir", plutôt que de le faire au boot.
+    isTrendingPreloadEnabled().then(enabled => {
+      if (enabled) initializeTrendingBooksCache();
+      else console.log('[Trending] Préchargement au démarrage désactivé (ConnectorSettings.trending.preloadOnStartup=false)');
+    });
 
     // Cron Valentine : re-tentative de téléchargement pour les demandes en attente
     startValentineCron();
