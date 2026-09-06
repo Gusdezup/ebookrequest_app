@@ -20,6 +20,8 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 >
 > Si le projet vous est utile, une ⭐ sur GitHub fait toujours plaisir et aide à le faire connaître !
 
+> 📌 Ce dépôt est un fork personnel de [zlimteck/ebookrequest_app](https://github.com/zlimteck/ebookrequest_app). Depuis le 5 septembre 2026, la numérotation de version est réalignée sur celle du dépôt d'origine (`1.5.7`) plutôt que de continuer sa propre suite (`1.9.1`) — d'où un numéro de version qui semble revenir en arrière dans l'historique des releases. Les fonctionnalités ajoutées ici sont progressivement proposées en amont via PR.
+
 ## Aperçu
 
 <div align="center">
