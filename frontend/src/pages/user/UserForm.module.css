@@ -193,7 +193,7 @@
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 0 0.75rem;
-  height: 42px;
+  height: 48px;
   overflow: hidden;
   flex: 1;
   min-width: 0;
@@ -240,7 +240,7 @@
   background: var(--color-bg3);
   padding: 3px;
   flex-shrink: 0;
-  height: 42px;
+  height: 48px;
   box-sizing: border-box;
 }
 
@@ -256,18 +256,16 @@
 
   .toggleSearch {
     width: 100%;
-  }
-
-  .toggleButton {
-    flex: 1;
-    justify-content: center;
+    height: auto;
   }
 }
 
 .toggleButton {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.45rem;
+  min-width: 0;
   padding: 0.5rem 1.25rem;
   border: none;
   background: transparent;
@@ -277,7 +275,31 @@
   font-size: 0.9rem;
   font-family: inherit;
   color: var(--color-text-muted);
+  white-space: nowrap;
   transition: background 0.15s, color 0.15s;
+}
+
+/* Mobile : icône au-dessus du texte + retour à la ligne autorisé. Placé
+   APRÈS la règle de base .toggleButton ci-dessus : à spécificité égale, la
+   règle la plus tardive dans le fichier gagne, media query ou non — la
+   mettre avant se faisait silencieusement écraser. */
+@media (max-width: 600px) {
+  .toggleButton {
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: 0.4rem 0.2rem;
+    font-size: 0.68rem;
+    white-space: normal;
+  }
+
+  .toggleLabel {
+    min-width: 0;
+    max-width: 100%;
+    text-align: center;
+    line-height: 1.15;
+  }
 }
 
 .toggleButton:hover:not(:disabled) {

@@ -27,7 +27,9 @@
 
 /* ── Sélecteur de mode — boutons (harmonisé avec la recherche directe) ── */
 .modeToggle {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -37,12 +39,15 @@
 .modeBtn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
+  flex: 1 1 auto;
   border: none;
   background: var(--color-bg3);
   color: var(--color-text-muted);
   padding: 0.45rem 0.9rem;
   font-size: 0.85rem;
+  white-space: nowrap;
   cursor: pointer;
 }
 

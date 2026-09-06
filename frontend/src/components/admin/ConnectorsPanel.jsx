@@ -59,7 +59,7 @@ function ValentineCard() {
     _hasPassword: false,
     cronInterval: 6,
     valentineFallbackToAdmin: false,
-    directSearchEnabled: true,
+    directSearchEnabled: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -83,7 +83,7 @@ function ValentineCard() {
           _hasPassword: res.data._hasPassword ?? false,
           cronInterval: res.data.cronInterval || 6,
           valentineFallbackToAdmin: res.data.valentineFallbackToAdmin ?? false,
-          directSearchEnabled: res.data.directSearchEnabled ?? true,
+          directSearchEnabled: res.data.directSearchEnabled ?? false,
         };
         setConfig(cfg);
         // Auto-fetch quota si activé et mot de passe configuré
