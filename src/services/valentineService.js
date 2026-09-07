@@ -248,6 +248,31 @@ function jitter(min = 800, max = 2200) {
   return new Promise(resolve => setTimeout(resolve, min + Math.random() * (max - min)));
 }
 
+// ─── Pacing entre téléchargements réels ────────────────────────────────────
+// Backstop serveur du pacing 45-90s déjà appliqué côté frontend pour un lot
+// de la recherche directe (DirectSourceSearch.jsx) — celui-ci ne protège que
+// contre un appel séquentiel normal depuis l'UI, pas contre un appel direct à
+// l'API. Ce garde-fou s'applique ici à TOUT téléchargement effectif
+// (downloadFromValentine du cron, downloadFromValentineById de la recherche
+// directe et du retry admin), quel que soit l'appelant — c'est le pattern de
+// requêtes agrégé qui expose au ban, pas seulement le chemin recherche directe.
+// withValentineLock sérialise déjà tout, donc pas de risque de concurrence ici.
+const DOWNLOAD_GAP_MIN_MS = 45000;
+const DOWNLOAD_GAP_MAX_MS = 90000;
+let lastDownloadAt = 0;
+
+async function enforceDownloadPacing() {
+  const now = Date.now();
+  const elapsed = now - lastDownloadAt;
+  const minGap = DOWNLOAD_GAP_MIN_MS + Math.random() * (DOWNLOAD_GAP_MAX_MS - DOWNLOAD_GAP_MIN_MS);
+  if (lastDownloadAt && elapsed < minGap) {
+    const wait = minGap - elapsed;
+    console.log(`[Valentine] Pacing anti-ban : attente ${Math.round(wait / 1000)}s avant le prochain téléchargement`);
+    await new Promise(resolve => setTimeout(resolve, wait));
+  }
+  lastDownloadAt = Date.now();
+}
+
 async function getConfig() {
   const doc = await ConnectorSettings.findOne({ service: 'valentine' }).lean();
   if (!doc) return { enabled: false, url: DEFAULT_URL, username: '', password: '' };
@@ -256,13 +281,13 @@ async function getConfig() {
 }
 
 /**
- * La recherche directe (bypass Google Books) peut être désactivée par un
- * admin — champ absent sur un doc existant (avant migration) = activé, seul
- * `false` explicite désactive.
+ * La recherche directe (bypass Google Books) multiplie les échanges avec
+ * Valentine (risque de ban de compte) — opt-in, un admin doit l'activer
+ * explicitement. Champ absent (doc existant avant migration) = désactivé.
  */
 export async function isDirectSearchEnabled() {
   const config = await getConfig();
-  return config.directSearchEnabled !== false;
+  return config.directSearchEnabled === true;
 }
 
 /** Parse Set-Cookie headers into a key/value object. */
@@ -899,6 +924,7 @@ export async function downloadFromValentine(title, author, requestId, category =
     }
 
     // ── Download file ──────────────────────────────────────────────────────
+    await enforceDownloadPacing();
     await jitter();
     const fullUrl = `${baseUrl}${dlPath}`;
     const fileRes = await axios.get(fullUrl, {
@@ -1098,6 +1124,7 @@ export function downloadFromValentineById(requestId, ebookId) {
     const dlPath = await getDownloadPath(baseUrl, cookies, ebookId);
     if (!dlPath) throw new Error('Lien de téléchargement introuvable pour cet ebook');
 
+    await enforceDownloadPacing();
     await jitter();
     const fileRes = await axios.get(`${baseUrl}${dlPath}`, {
       headers: { ...baseHeaders(), 'Accept': '*/*', 'Cookie': cookieHeader(cookies) },

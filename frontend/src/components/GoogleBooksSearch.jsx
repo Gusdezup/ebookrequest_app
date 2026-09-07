@@ -66,14 +66,14 @@ const IconTitle = ({ size = 16 }) => (
 );
 
 const MODE_ICONS = {
-  global: <IconTitle  size={14} />,
+  global: <IconSearch size={14} />,
   title:  <IconTitle  size={14} />,
   author: <IconAuthor size={14} />,
   series: <IconSeries size={14} />,
 };
 
 const SEARCH_MODES = [
-  { value: 'global', label: 'Recherche globale' },
+  { value: 'global', label: 'Global' },
   { value: 'title',  label: 'Titre'  },
   { value: 'author', label: 'Auteur' },
   { value: 'series', label: 'Série'  },

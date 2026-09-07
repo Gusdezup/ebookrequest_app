@@ -22,7 +22,9 @@ const ConnectorSettingsSchema = new mongoose.Schema({
   // Recherche directe Valentine (bypass Google Books) — off/on admin, avec
   // avertissement dans l'UI sur le risque de ban lié à l'usage accru du
   // compte Valentine que ça implique. Demande de zlimteck.
-  directSearchEnabled: { type: Boolean, default: true },
+  // Opt-in : la recherche directe multiplie les échanges avec Valentine
+  // (risque de ban de compte), désactivée tant qu'un admin ne l'active pas explicitement.
+  directSearchEnabled: { type: Boolean, default: false },
   // Anti-spam pour l'alerte "rupture provider" (googleBooks/hardcover) : date de la
   // dernière alerte envoyée pour CE service, pour ne pas réalerter avant 24h tant que
   // le problème persiste.

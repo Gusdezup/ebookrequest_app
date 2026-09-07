@@ -20,8 +20,6 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 >
 > Si le projet vous est utile, une ⭐ sur GitHub fait toujours plaisir et aide à le faire connaître !
 
-> 📌 Ce dépôt est un fork personnel de [zlimteck/ebookrequest_app](https://github.com/zlimteck/ebookrequest_app). Depuis le 5 septembre 2026, la numérotation de version est réalignée sur celle du dépôt d'origine (`1.5.7`) plutôt que de continuer sa propre suite (`1.9.1`) — d'où un numéro de version qui semble revenir en arrière dans l'historique des releases. Les fonctionnalités ajoutées ici sont progressivement proposées en amont via PR.
-
 ## Aperçu
 
 <div align="center">
@@ -51,7 +49,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
   - [Mise à jour](#mise-à-jour)
   - [Accès OPDS](#accès-opds)
 - [Structure du projet](#structure-du-projet)
-- [Remerciements](#remerciements)
+- [Contributeurs](#contributeurs)
 
 ## Stack
 
@@ -60,7 +58,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - **Notifications :** Email (SMTP), Push (VAPID), Apprise
 - **IA :** OpenAI / Ollama / Claude (Anthropic) (recommandations, descriptions)
 - **APIs :** Google Books, Hardcover, Open Library (recherche et métadonnées, avec repli automatique entre les trois)
-- **Connecteurs :** Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via solveur anti-bot [actuellement bloqué](#téléchargement)), LibGen (repli sans protection anti-bot), Calibre-Web (envoi vers une ou plusieurs étagères, y compris multi-utilisateurs), PreDB.fr (API de vérification de disponibilité)
+- **Connecteurs :** Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via solveur anti-bot [actuellement bloqué](#téléchargement)), LibGen (repli sans protection anti-bot), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
 - **Visionneuse :** PDF (navigateur natif), EPUB (epub.js via react-reader), CBZ/CBR (JSZip)
 - **Conversion :** Calibre (`ebook-convert`) intégré dans l'image Docker EPUB ↔ MOBI, AZW3, FB2 ; CBZ → PDF (JSZip + pdfkit, sans dépendance externe)
 - **Déploiement :** Docker, GitHub Actions, Docker Hub
@@ -74,7 +72,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
   - **Par auteur :** résultats filtrés en français, triés du plus récent au plus ancien
   - **Auteur + Titre combinés :** saisir `Prénom Nom Titre du livre` sans séparateur (ex : `Virginie Grimaldi D'autres printemps`)
   - **Scan de code-barres :** scanner l'ISBN directement depuis la caméra de l'appareil
-- Recherche résiliente : retry automatique avec backoff sur les erreurs Google Books transitoires (503/429), requêtes multi-variantes en cascade — la plus fiable d'abord, repli séquentiel sur les suivantes seulement si elle échoue (formes du nom d'auteur, avec/sans titre) — pour limiter la consommation de quota, repli automatique **Hardcover** puis **Open Library** si Google Books échoue ou est désactivé, et proxy sortant optionnel en cas de throttling persistant (voir [Proxy sortant](#proxy-sortant-optionnel))
+- Recherche résiliente : retry automatique avec backoff sur les erreurs Google Books transitoires (503/429), requêtes multi-variantes en parallèle (formes du nom d'auteur, avec/sans titre), repli automatique **Hardcover** puis **Open Library** si Google Books échoue ou est désactivé, et proxy sortant optionnel en cas de throttling persistant (voir [Proxy sortant](#proxy-sortant-optionnel))
 - Google Books et Hardcover s'activent/se désactivent indépendamment depuis **Réglages** Google seul, Hardcover seul, les deux (avec repli), ou aucun des deux (recherche via Open Library uniquement)
 - Vérification de disponibilité à la soumission (flux RSS PreDB.me + API PreDB.fr)
 - Quota de demandes configurable par utilisateur (nombre + fenêtre glissante en jours)
@@ -85,8 +83,6 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - Recherche manuelle sur les connecteurs depuis le panel admin une section par source (Valentine, Anna's Archive, LibGen), interrogées en parallèle
 - Si aucune source n'aboutit, la demande est marquée « traitement manuel » côté utilisateur (mise à jour en direct via WebSocket) et les admins sont notifiés
 - Envoi automatique du fichier vers Calibre-Web à la complétion d'une demande
-- **Sélection des étagères de destination**, au choix, dès la création de la demande ou a posteriori depuis « Mes demandes » (ou le panel admin pour une demande déjà complétée) — pas uniquement l'étagère Kobo-sync
-- **Multishelf multi-utilisateurs (admin) :** possibilité de pousser un même livre vers les étagères de plusieurs comptes Calibre-Web à la fois (ex : soi-même + un proche), sans ré-upload — dès la création de la demande ou a posteriori
 - Synchronisation automatique de l'étagère Kobo dans Calibre-Web (le livre apparaît directement sur la liseuse)
 - Envoi automatique du fichier sur l'adresse `@kindle.com` de l'utilisateur à chaque complétion (activable par l'utilisateur dans ses paramètres, requiert un email vérifié)
 
@@ -418,6 +414,9 @@ ebookrequest/
 
 ---
 
-## Remerciements
+## Contributeurs
 
-Un grand merci à [@Gusdezup](https://github.com/Gusdezup) pour ses idées et suggestions qui ont contribué à enrichir le projet, notamment la synchronisation Calibre, la sélection multi-étagères (y compris multi-utilisateurs) et la synchronisation Kobo.
+<a href="https://github.com/zlimteck"><img src="https://github.com/zlimteck.png?size=48" width="40" height="40" alt="zlimteck" style="border-radius:50%"></a>
+<a href="https://github.com/Gusdezup"><img src="https://github.com/Gusdezup.png?size=80" width="40" height="40" alt="Gusdezup" style="border-radius:50%"></a>
+
+Merci à [@Gusdezup](https://github.com/Gusdezup) pour ses idées et suggestions (synchronisation Calibre, étagère Calibre, synchronisation Kobo) ainsi que pour ses contributions directes en pull request : fiabilisation de l'assignation à l'étagère Calibre-Web, recherche par auteur/série sur Valentine, et diverses corrections de performance et de fiabilité (recherche Google Books, notifications Apprise, cache des livres tendance).

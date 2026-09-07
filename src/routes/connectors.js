@@ -78,7 +78,7 @@ router.get('/valentine', requireAuth, requireAdmin, async (req, res) => {
       _hasPassword: !!doc.password,
       cronInterval: doc.cronInterval || 6,
       valentineFallbackToAdmin: doc.valentineFallbackToAdmin ?? false,
-      directSearchEnabled: doc.directSearchEnabled ?? true,
+      directSearchEnabled: doc.directSearchEnabled ?? false,
     });
   } catch {
     res.status(500).json({ error: 'Erreur serveur' });
@@ -96,7 +96,7 @@ router.put('/valentine', requireAuth, requireAdmin, async (req, res) => {
       username: username?.trim() || '',
       cronInterval: Number(cronInterval) || 6,
       valentineFallbackToAdmin: !!valentineFallbackToAdmin,
-      directSearchEnabled: directSearchEnabled !== false,
+      directSearchEnabled: directSearchEnabled === true,
     };
 
     if (password && password !== '••••••••') {
