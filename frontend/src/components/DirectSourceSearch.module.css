@@ -21,11 +21,15 @@
 }
 
 .modeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   border: none;
   background: var(--color-bg3);
   color: var(--color-text-muted);
   padding: 0.45rem 0.9rem;
   font-size: 0.85rem;
+  white-space: nowrap;
   cursor: pointer;
 }
 

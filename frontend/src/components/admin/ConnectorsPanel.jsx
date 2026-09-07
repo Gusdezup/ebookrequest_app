@@ -59,7 +59,7 @@ function ValentineCard() {
     _hasPassword: false,
     cronInterval: 6,
     valentineFallbackToAdmin: false,
-    directSearchEnabled: true,
+    directSearchEnabled: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -83,7 +83,7 @@ function ValentineCard() {
           _hasPassword: res.data._hasPassword ?? false,
           cronInterval: res.data.cronInterval || 6,
           valentineFallbackToAdmin: res.data.valentineFallbackToAdmin ?? false,
-          directSearchEnabled: res.data.directSearchEnabled ?? true,
+          directSearchEnabled: res.data.directSearchEnabled ?? false,
         };
         setConfig(cfg);
         // Auto-fetch quota si activé et mot de passe configuré
@@ -609,7 +609,7 @@ function TrendingCard() {
               Précharge les 7 catégories de la page "Découvrir" au démarrage du serveur, pour qu'elle
               réponde instantanément dès la première visite. Coûte jusqu'à ~70 requêtes Google Books
               à chaque redémarrage du conteneur (mise à jour, crash, reboot…), même si personne ne
-              consulte la page ce jour-là. Désactiver ici la fait charger à la demande à la place —
+              consulte la page ce jour-là. Désactiver ici la fait charger à la demande à la place :
               la première visite du jour absorbe un léger délai, mais zéro requête gaspillée si
               personne n'y va.
             </p>

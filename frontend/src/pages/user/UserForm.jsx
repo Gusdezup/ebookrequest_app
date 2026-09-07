@@ -46,15 +46,23 @@ function isoToFr(str) {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-const SearchIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-  </svg>
-);
-
 const EditIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
+
+// Recherche enrichie (Google Books/Hardcover/Open Library) — livre avec métadonnées
+const BookIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+  </svg>
+);
+
+// Recherche directe sur Valentine (bypass) — éclair pour l'idée de raccourci/rapidité
+const ZapIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
   </svg>
 );
 
@@ -845,21 +853,24 @@ function UserForm() {
         <div className={styles.toggleSearch}>
           <button type="button"
             className={`${styles.toggleButton} ${searchMode === 'google' ? styles.toggleActive : ''}`}
-            onClick={() => chooseSearchMode('google')} disabled={!!selectedBook} aria-pressed={searchMode === 'google'}>
-            <SearchIcon /> Recherche détaillée
+            onClick={() => chooseSearchMode('google')} disabled={!!selectedBook} aria-pressed={searchMode === 'google'}
+            aria-label="Détaillée" title="Détaillée">
+            <BookIcon /> <span className={styles.toggleLabel}>Détaillée</span>
           </button>
           {manualModeAllowed && (
             <button type="button"
               className={`${styles.toggleButton} ${searchMode === 'manual' ? styles.toggleActive : ''}`}
-              onClick={() => chooseSearchMode('manual')} aria-pressed={searchMode === 'manual'}>
-              <EditIcon /> Manuel
+              onClick={() => chooseSearchMode('manual')} aria-pressed={searchMode === 'manual'}
+              aria-label="Manuel" title="Manuel">
+              <EditIcon /> <span className={styles.toggleLabel}>Manuel</span>
             </button>
           )}
           {directSearchAllowed && (
             <button type="button"
               className={`${styles.toggleButton} ${searchMode === 'direct' ? styles.toggleActive : ''}`}
-              onClick={() => chooseSearchMode('direct')} disabled={!!selectedBook} aria-pressed={searchMode === 'direct'}>
-              <SearchIcon /> Recherche directe
+              onClick={() => chooseSearchMode('direct')} disabled={!!selectedBook} aria-pressed={searchMode === 'direct'}
+              aria-label="Directe" title="Directe">
+              <ZapIcon /> <span className={styles.toggleLabel}>Directe</span>
             </button>
           )}
         </div>
