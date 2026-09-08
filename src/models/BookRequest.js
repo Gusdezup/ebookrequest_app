@@ -25,7 +25,7 @@ const bookRequestSchema = new mongoose.Schema({
   },
   link: { 
     type: String, 
-    required: true 
+    default: ''
   },
   thumbnail: {
     type: String,
