@@ -75,6 +75,10 @@ Paramètres → Connecteurs → Ajouter :
 | `get_request_details` | Détails d'une demande par titre : description, couverture, commentaire admin |
 | `cancel_request` | Annuler une de ses demandes en attente par titre |
 | `check_availability` | Vérifier si un livre est disponible (PreDB, Valentine, Anna's Archive) |
+| `direct_search` | Recherche directe et immédiate sur Valentine.wtf (titre, auteur ou série) |
+| `direct_search_books` | Lister les livres d'une fiche auteur ou série trouvée par `direct_search` |
+| `direct_download` | Télécharger immédiatement un résultat de recherche directe et créer la demande |
+| `get_my_shelves` | Lister mes étagères Calibre-Web configurées (pour `direct_download`) |
 | `get_my_stats` | Quota utilisé, demandes complétées, en attente |
 | `get_my_library` | Ma bibliothèque de lecture avec progression et notes |
 
@@ -101,6 +105,16 @@ Paramètres → Connecteurs → Ajouter :
 > "Annule ma demande abc123"
 
 > "Montre-moi les stats de ma bibliothèque"
+
+> "Cherche directement sur Valentine le tome 3 de Dune"
+
+> "Liste les livres de la série trouvée à l'url /serie/dune"
+
+> "Télécharge directement le livre avec l'id 12345"
+
+> "Quelles sont mes étagères Calibre-Web ?"
+
+> "Télécharge ce livre et mets-le dans mon étagère Fantasy"
 
 > "Combien de demandes sont en attente ?" *(admin)*
 
