@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import ConnectorSettings from '../models/ConnectorSettings.js';
+import { cleanSeriesTitle } from '../utils/titleCleaning.js';
+import { normalizeForMatch, authorMatchScore } from '../utils/textMatch.js';
 import BookRequest from '../models/BookRequest.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
@@ -25,33 +27,9 @@ function stripTags(str) {
 }
 
 // ─── Helpers de matching ───────────────────────────────────────────────────────
-
-function normalizeForMatch(str) {
-  return (str || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')   // supprimer les accents
-    .replace(/[.,'"""'']/g, ' ')       // ponctuation → espace
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
- * Retourne un score 0–1 : proportion des tokens de requestAuthor présents dans resultAuthor.
- * Retourne 1 si aucun auteur n'est fourni (pas de contrainte).
- */
-function authorMatchScore(requestAuthor, resultAuthor) {
-  if (!requestAuthor) return 1;
-  const reqTokens = normalizeForMatch(requestAuthor).split(' ').filter(t => t.length > 1);
-  if (!reqTokens.length) return 1;
-  if (!resultAuthor) return 0;
-  const resTokens = normalizeForMatch(resultAuthor).split(' ').filter(t => t.length > 1);
-  let matches = 0;
-  for (const rw of reqTokens) {
-    if (resTokens.some(w => w === rw || w.startsWith(rw) || rw.startsWith(w))) matches++;
-  }
-  return matches / reqTokens.length;
-}
+// normalizeForMatch et authorMatchScore vivent maintenant dans
+// src/utils/textMatch.js (partagées avec le classement des candidats Google
+// Books dans bookRequestController.js).
 
 /**
  * Extrait le numéro de volume/tome d'un titre (T01, T15, Vol. 3, Vol.3, #3…).
@@ -63,6 +41,14 @@ function extractVolumeNumber(title) {
   );
   return m ? parseInt(m[1], 10) : null;
 }
+
+/**
+ * Nettoie un titre pour la recherche titre sur Valentine — voir
+ * src/utils/titleCleaning.js pour le détail. Réutilisé aussi par la
+ * recherche de métadonnées Google Books (bookRequestController.js), donc
+ * factorisé plutôt que dupliqué ici.
+ */
+const cleanValentineSearchTitle = cleanSeriesTitle;
 
 // Profils navigateur cohérents — UA + jeu de headers assortis, tirés
 // ENSEMBLE (pas mélangés au hasard). Un vrai Firefox n'envoie jamais les
@@ -820,8 +806,14 @@ export function getValentineQuota(username, password) {
 export async function downloadFromValentine(title, author, requestId, category = 'ebook', userCredentials = null) {
   await withValentineLock(async () => {
   try {
+    // (patch) : le motif "t\d{2}" retiré aussi — il ne distinguait pas
+    // manga/roman par le contenu mais par le nombre de chiffres du tome, ce
+    // qui skip à tort tout roman en 10+ tomes (La Roue du Temps T14...) et
+    // rate les mangas peu numérotés (One Piece T1 à T9). category reste le
+    // signal fiable ; les mots ci-dessous ne servent que de filet si
+    // category est mal renseigné.
     const isMangaOrComic = category === 'comic' || category === 'manga' ||
-      /\b(manga|manhwa|manhua|comic|tome\s*\d+|vol\.?\s*\d+|t\d{2}\b)/i.test(title);
+      /\b(manga|manhwa|manhua|comic)\b/i.test(title);
 
     if (isMangaOrComic) {
       console.log(`[Valentine] "${title}" est un comic/manga, skip.`);
@@ -856,12 +848,7 @@ export async function downloadFromValentine(title, author, requestId, category =
     }
 
     // ── Search ─────────────────────────────────────────────────────────────
-    const cleanTitle = title
-      .replace(/\s*[-–—:]\s+.*/u, '')
-      .replace(/\s*tome\s+\d+.*/i, '')
-      .replace(/\s*vol\.?\s+\d+.*/i, '')
-      .replace(/\s*\(.*\)\s*/g, '')
-      .trim();
+    const cleanTitle = cleanValentineSearchTitle(title);
 
     // Nettoyer l'auteur pour la recherche : "ALEXANDRE. CONTART" → "ALEXANDRE CONTART"
     const cleanAuthor = (author || '')
@@ -1089,7 +1076,12 @@ export function quickSearchOnValentine(title, author) {
     const baseUrl = (config.url || DEFAULT_URL).replace(/\/$/, '');
     const cookies = await getSession(baseUrl, config.username, config.password);
 
-    const titleResults = await searchTitles(baseUrl, cookies, title);
+    // Même nettoyage que le téléchargement réel (downloadFromValentine) :
+    // Valentine indexe le titre de série seul ("Dune"), pas "Dune - Tome 1"
+    // ni "Dune T1". Sans ça, le badge de disponibilité dit "non trouvé" pour
+    // des livres que le téléchargement, lui, trouverait sans problème.
+    const cleanTitle = cleanValentineSearchTitle(title);
+    const titleResults = await searchTitles(baseUrl, cookies, cleanTitle);
     if (titleResults.length > 0) {
       return { results: titleResults, matchType: 'title' };
     }
