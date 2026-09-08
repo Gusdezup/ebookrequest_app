@@ -1,8 +1,13 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import FormData from 'form-data';
 import { decrypt } from './cryptoService.js';
+import { extractEpubMetadata } from '../utils/epubMetadata.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const TIMEOUT = 120000;
 
@@ -386,7 +391,21 @@ export async function pushBookToUserShelves(targetUser, calibreBookId, desiredSh
 export async function resolveCalibreBookId(request, url, username, password) {
   let calibreBookId = request.calibrePush?.calibreBookId || null;
   if (!calibreBookId) {
-    calibreBookId = await matchCalibreBookId(url, username, password, request.title, { maxAttempts: 1 });
+    // Même logique que pushToCalibre : le titre "vérité terrain" est celui
+    // embarqué dans le fichier epub (celui que Calibre-Web a réellement
+    // indexé), pas forcément request.title si la source d'origine renvoyait
+    // un libellé différent (ex. préfixe de série Valentine).
+    let searchTitle = request.title;
+    if (request.filePath) {
+      const absPath = path.join(__dirname, '../../uploads', request.filePath);
+      const epubMeta = await extractEpubMetadata(absPath);
+      if (epubMeta?.title) searchTitle = epubMeta.title;
+    }
+
+    calibreBookId = await matchCalibreBookId(url, username, password, searchTitle, { maxAttempts: 1 });
+    if (!calibreBookId && searchTitle !== request.title) {
+      calibreBookId = await matchCalibreBookId(url, username, password, request.title, { maxAttempts: 1 });
+    }
   }
   return calibreBookId;
 }
@@ -423,11 +442,13 @@ export async function matchCalibreBookId(url, username, password, bookTitle, { m
     .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)));
 
   const normalize = (str) => decodeXmlEntities(str).toLowerCase().replace(/[^a-z0-9]/g, '');
-  const titleNorm = normalize(bookTitle);
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  // Une seule tentative de recherche OPDS pour un titre de requête donné.
+  // Retourne l'id trouvé, ou null si rien ne matche / erreur réseau.
+  const runSearch = async (queryTitle) => {
+    const titleNorm = normalize(queryTitle);
     try {
-      const searchUrl = `${url}/opds/search/${encodeURIComponent(bookTitle)}`;
+      const searchUrl = `${url}/opds/search/${encodeURIComponent(queryTitle)}`;
       const opdsRes = await axios.get(searchUrl, {
         headers: {
           Authorization: `Basic ${basicAuth}`,
@@ -467,7 +488,7 @@ export async function matchCalibreBookId(url, username, password, bookTitle, { m
 
         if (bestMatch) {
           if (!bestMatch.exact) {
-            console.warn(`[Calibre] Correspondance partielle (pas exacte) pour "${bookTitle}" — id ${bestMatch.id} retenu par defaut.`);
+            console.warn(`[Calibre] Correspondance partielle (pas exacte) pour "${queryTitle}" — id ${bestMatch.id} retenu par defaut.`);
           }
           return bestMatch.id;
         }
@@ -475,7 +496,29 @@ export async function matchCalibreBookId(url, username, password, bookTitle, { m
     } catch (err) {
       console.warn(`[Calibre] OPDS search erreur: ${err.message}`);
     }
+    return null;
+  };
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const id = await runSearch(bookTitle);
+    if (id) return id;
     if (attempt < maxAttempts) await new Promise(r => setTimeout(r, retryDelayMs));
+  }
+
+  // Repli : titres de la forme "Série TX : Sous-titre" (cas de la recherche
+  // directe en mode "Titre", qui reprend tel quel le libellé autocomplete de
+  // Valentine) — Calibre-Web n'indexe généralement que le sous-titre, le
+  // préfixe série+tome fait donc échouer toutes les tentatives ci-dessus
+  // même quand le livre est bien présent. On retente une fois avec juste la
+  // partie après le dernier ":".
+  const colonIdx = bookTitle.lastIndexOf(':');
+  if (colonIdx !== -1) {
+    const subtitle = bookTitle.slice(colonIdx + 1).trim();
+    if (subtitle && subtitle.toLowerCase() !== bookTitle.toLowerCase()) {
+      console.warn(`[Calibre] Repli — nouvelle recherche avec le sous-titre seul : "${subtitle}"`);
+      const id = await runSearch(subtitle);
+      if (id) return id;
+    }
   }
 
   console.warn(`[Calibre] Livre "${bookTitle}" introuvable via /opds/search après ${maxAttempts} tentatives.`);
@@ -606,7 +649,24 @@ export async function pushToCalibre(user, filePath, bookTitle, shelfNames) {
   } else {
     console.log('[Calibre] CWA détecté — attente 8s puis recherche OPDS par titre...');
     await new Promise(r => setTimeout(r, 8000));
-    calibreBookId = await matchCalibreBookId(url, username, password, bookTitle);
+
+    // Le titre fourni par la source (Valentine, etc.) peut différer de ce que
+    // Calibre-Web indexe réellement, qui lit les métadonnées embarquées dans
+    // le fichier lui-même. On extrait ce titre "vérité terrain" depuis
+    // l'epub qu'on vient d'uploader et on l'utilise en priorité pour la
+    // recherche OPDS ; si l'extraction échoue ou ne matche rien, on retombe
+    // sur le titre fourni.
+    let searchTitle = bookTitle;
+    const epubMeta = await extractEpubMetadata(filePath);
+    if (epubMeta?.title) {
+      console.log(`[Calibre] Titre epub extrait : "${epubMeta.title}" (source : "${bookTitle}")`);
+      searchTitle = epubMeta.title;
+    }
+
+    calibreBookId = await matchCalibreBookId(url, username, password, searchTitle);
+    if (!calibreBookId && searchTitle !== bookTitle) {
+      calibreBookId = await matchCalibreBookId(url, username, password, bookTitle);
+    }
   }
 
   // 5. Ajout aux étagères demandées

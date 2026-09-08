@@ -101,6 +101,14 @@ router.post('/check', requireAuth, async (req, res) => {
       message = 'Ebook trouvé sur Anna\'s Archive.';
     } else if (valentineFound && valentineMatchType === 'author') {
       message = 'Ebook non trouvé directement, mais l\'auteur existe sur Valentine — ce livre précis pourrait être trouvable, sans garantie.';
+    } else if (predb.confidence === 'unknown') {
+      // PreDB n'a rien donné (désactivé ou en erreur) ET Valentine/Anna's ont
+      // aussi été interrogés sans résultat — le message de predb seul
+      // ("désactivé par un administrateur") laissait croire que c'était la
+      // seule vérification effectuée, alors que les 3 sources ont été
+      // essayées. Cas différent de predb.confidence 'low' ci-dessous, où
+      // predb a réellement tourné et a un avis à donner.
+      message = 'Livre non trouvé sur les sources activées.';
     } else {
       message = predb.message;
     }
