@@ -173,6 +173,44 @@ curl "https://app.ndd.fr/api/requests/check-duplicate?title=Dune&author=Frank+He
   -H "Authorization: Bearer <token>"
 ```
 
+### `GET /api/requests/direct-search-status`
+Indique si la recherche directe sur Valentine (bypass du workflow demande/attente) est activée par un admin.
+```bash
+curl https://app.ndd.fr/api/requests/direct-search-status \
+  -H "Authorization: Bearer <token>"
+```
+
+### `GET /api/requests/direct-search?mode=title|author|series&q=...`
+Recherche immédiate sur Valentine. En mode `title`, renvoie une liste de livres directement téléchargeables. En mode `author`/`series`, renvoie une liste de fiches à explorer ensuite via `direct-search-books`.
+```bash
+curl "https://app.ndd.fr/api/requests/direct-search?mode=title&q=Dune" \
+  -H "Authorization: Bearer <token>"
+```
+
+### `GET /api/requests/direct-search-books?type=author|series&url=...&name=...`
+Liste les livres d'une fiche auteur/série trouvée via `direct-search`.
+```bash
+curl "https://app.ndd.fr/api/requests/direct-search-books?type=author&url=/auteur/frank-herbert" \
+  -H "Authorization: Bearer <token>"
+```
+
+### `POST /api/requests/direct-download`
+Crée la demande et télécharge immédiatement le livre choisi (réponse synchrone), avec choix optionnel des étagères Calibre-Web cibles.
+```bash
+curl -X POST https://app.ndd.fr/api/requests/direct-download \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ebookId": "12345",
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "link": "https://valentine.wtf/...",
+    "publishedDate": "1965",
+    "category": "ebook",
+    "selectedShelves": ["Fantasy"]
+  }'
+```
+
 ### `DELETE /api/requests/:id`
 ```bash
 curl -X DELETE https://app.ndd.fr/api/requests/ID \

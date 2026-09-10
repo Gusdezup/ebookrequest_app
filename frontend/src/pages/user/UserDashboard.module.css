@@ -987,6 +987,8 @@
   padding: 2rem;
   max-width: 500px;
   width: 100%;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   border: 1px solid var(--color-border);
 }
@@ -1254,6 +1256,7 @@ select.editInput {
   .modalContent {
     padding: 1.5rem;
     margin: 1rem;
+    max-height: calc(100vh - 2rem);
   }
 
   .modalButtons {

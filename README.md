@@ -58,7 +58,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - **Notifications :** Email (SMTP), Push (VAPID), Apprise
 - **IA :** OpenAI / Ollama / Claude (Anthropic) (recommandations, descriptions)
 - **APIs :** Google Books, Hardcover, Open Library (recherche et métadonnées, avec repli automatique entre les trois)
-- **Connecteurs :** Valentine (téléchargement auto), Anna's Archive (recherche + téléchargement via solveur anti-bot [actuellement bloqué](#téléchargement)), LibGen (repli sans protection anti-bot), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
+- **Connecteurs :** V (téléchargement auto), Anna's Archive (recherche + téléchargement via solveur anti-bot [actuellement bloqué](#téléchargement)), LibGen (repli sans protection anti-bot), Calibre-Web (envoi + sync étagère Kobo), PreDB.fr (API de vérification de disponibilité)
 - **Visionneuse :** PDF (navigateur natif), EPUB (epub.js via react-reader), CBZ/CBR (JSZip)
 - **Conversion :** Calibre (`ebook-convert`) intégré dans l'image Docker EPUB ↔ MOBI, AZW3, FB2 ; CBZ → PDF (JSZip + pdfkit, sans dépendance externe)
 - **Déploiement :** Docker, GitHub Actions, Docker Hub
@@ -79,8 +79,8 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 - Soumission admin au nom d'un autre utilisateur
 
 **Téléchargement**
-- Téléchargement automatique via Valentine, avec repli Anna's Archive puis LibGen
-- Recherche manuelle sur les connecteurs depuis le panel admin une section par source (Valentine, Anna's Archive, LibGen), interrogées en parallèle
+- Téléchargement automatique via V, avec repli Anna's Archive puis LibGen
+- Recherche manuelle sur les connecteurs depuis le panel admin une section par source (V, Anna's Archive, LibGen), interrogées en parallèle
 - Si aucune source n'aboutit, la demande est marquée « traitement manuel » côté utilisateur (mise à jour en direct via WebSocket) et les admins sont notifiés
 - Envoi automatique du fichier vers Calibre-Web à la complétion d'une demande
 - Synchronisation automatique de l'étagère Kobo dans Calibre-Web (le livre apparaît directement sur la liseuse)
@@ -157,6 +157,7 @@ Gérez les demandes de livres numériques de vos proches, de la soumission jusqu
 **Intégration (MCP)**
 - Serveur MCP pour gérer ses demandes directement depuis un assistant IA
 - Outils utilisateur : rechercher un livre, créer une demande (couverture auto via Google Books/Hardcover/Open Library), consulter ses demandes, vérifier la disponibilité, annuler une demande, consulter stats et bibliothèque
+- Outils de recherche/téléchargement direct sur V (bypass du workflow demande/attente, désactivable par un admin) : `direct_search`, `direct_search_books`, `direct_download` (avec choix d'étagères Calibre-Web), `get_my_shelves`
 - Outils admin : demandes en attente, statistiques globales, changer le statut d'une demande, lister les utilisateurs
 - Compatible avec tous les clients MCP : [ChatMCP](https://apps.apple.com/fr/app/chatmcp/id6745196560) (iOS/iPadOS), Claude Desktop (Mac/Windows), Claude Web
 - Deux modes de déploiement : **HTTP** (hébergé sur VPS, accessible depuis n'importe où) ou **stdio** (local, pour Claude Desktop)
@@ -292,7 +293,7 @@ npx web-push generate-vapid-keys
 
 > `GOOGLE_BOOKS_API_KEY` et `RSS_FEED_URL` sont **optionnelles depuis la 1.5.2** configurables dans **Réglages**, avec la même migration automatique depuis le `.env` que l'email et l'IA. **Hardcover** (repli entre Google Books et Open Library) n'a pas de variable d'environnement : clé API et activation se configurent uniquement depuis **Réglages** (désactivé par défaut).
 >
-> Les connecteurs de téléchargement (**Valentine**, **Anna's Archive**, **LibGen**, **Calibre-Web**) n'ont eux non plus aucune variable d'environnement : URL, identifiants et activation se règlent depuis **Admin → Connecteurs**, et les secrets sont chiffrés en base. Seule exception, `FLARESOLVERR_URL` ci-dessous, qui pointe vers le solveur anti-bot utilisé par Anna's Archive.
+> Les connecteurs de téléchargement (**V**, **Anna's Archive**, **LibGen**, **Calibre-Web**) n'ont eux non plus aucune variable d'environnement : URL, identifiants et activation se règlent depuis **Admin → Connecteurs**, et les secrets sont chiffrés en base. Seule exception, `FLARESOLVERR_URL` ci-dessous, qui pointe vers le solveur anti-bot utilisé par Anna's Archive.
 
 | Variable | Description |
 |---|---|
@@ -419,4 +420,4 @@ ebookrequest/
 <a href="https://github.com/zlimteck"><img src="https://github.com/zlimteck.png?size=48" width="40" height="40" alt="zlimteck" style="border-radius:50%"></a>
 <a href="https://github.com/Gusdezup"><img src="https://github.com/Gusdezup.png?size=80" width="40" height="40" alt="Gusdezup" style="border-radius:50%"></a>
 
-Merci à [@Gusdezup](https://github.com/Gusdezup) pour ses idées et suggestions (synchronisation Calibre, étagère Calibre, synchronisation Kobo) ainsi que pour ses contributions directes en pull request : fiabilisation de l'assignation à l'étagère Calibre-Web, recherche par auteur/série sur Valentine, et diverses corrections de performance et de fiabilité (recherche Google Books, notifications Apprise, cache des livres tendance).
+Merci à [@Gusdezup](https://github.com/Gusdezup) pour ses idées et suggestions (synchronisation Calibre, étagère Calibre, synchronisation Kobo) ainsi que pour ses contributions directes en pull request : fiabilisation de l'assignation à l'étagère Calibre-Web, recherche par auteur/série sur V, recherche/téléchargement direct via MCP, correctifs de matching titre (Calibre-Web, V, Google Books) pour les livres de série, et diverses corrections de performance et de fiabilité (recherche Google Books, notifications Apprise, cache des livres tendance).
