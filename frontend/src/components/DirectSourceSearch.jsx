@@ -20,9 +20,10 @@ function randomDelay() {
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-function estimateBatchMinutes(n) {
+function estimateBatchMinutes(n, hasDelay = true) {
   if (n <= 1) return null;
-  const totalMs = (n - 1) * ((DELAY_MIN_MS + DELAY_MAX_MS) / 2) + n * 4000;
+  const perBookMs = hasDelay ? (DELAY_MIN_MS + DELAY_MAX_MS) / 2 : 0;
+  const totalMs = (n - 1) * perBookMs + n * 4000;
   return Math.max(1, Math.round(totalMs / 60000));
 }
 
@@ -49,16 +50,28 @@ const IconSeries = ({ size = 14 }) => (
   </svg>
 );
 
+// Fourtoutici n'a qu'un seul champ de recherche (pas de fiche auteur/série à
+// parcourir comme sur Valentine) — icône loupe générique plutôt que celles
+// dédiées titre/auteur/série ci-dessus, qui n'auraient pas de sens ici.
+const IconFlat = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="7"/>
+    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+);
+
 const MODE_ICONS = {
   title:  <IconTitle  size={14} />,
   author: <IconAuthor size={14} />,
   series: <IconSeries size={14} />,
+  fourtoutici: <IconFlat size={14} />,
 };
 
 const MODES = [
   { value: 'title',  label: 'Titre'   },
   { value: 'author', label: 'Auteur'  },
   { value: 'series', label: 'Série'   },
+  { value: 'fourtoutici', label: 'Fourtoutici' },
 ];
 
 const VALID_MODES = MODES.map(m => m.value);
@@ -67,6 +80,7 @@ const PLACEHOLDERS = {
   title:  'Titre exact du livre…',
   author: "Nom de l'auteur…",
   series: 'Nom de la série…',
+  fourtoutici: 'Titre, auteur, mots-clés…',
 };
 
 /**
@@ -83,6 +97,13 @@ const PLACEHOLDERS = {
  * Pas de mode "Globale" : Valentine n'a pas de recherche combinée
  * titre+auteur côté serveur — retiré plutôt que de garder un mode dont le nom
  * laissait croire à une capacité qui n'existe pas.
+ *
+ * Un 4e onglet "Fourtoutici" (distinct des trois précédents) fait une
+ * recherche à plat sur ce site — un seul champ, pas de fiche auteur/série à
+ * parcourir comme sur Valentine, donc pas transposable dans les modes
+ * existants. Pas de pause anti-détection sur ce mode (voir DELAY_MIN/MAX_MS) :
+ * Fourtoutici n'a ni quota ni protection anti-bot connue, contrairement à
+ * Valentine où cette pause existe suite à un ban de compte passé.
  *
  * Un bouton "Télécharger" explicite sur chaque résultat crée la demande ET
  * lance le téléchargement (POST /api/requests/direct-download), avec un
@@ -176,6 +197,16 @@ const DirectSourceSearch = ({
     resetResults();
 
     try {
+      if (mode === 'fourtoutici') {
+        const res = await axiosAdmin.get('/api/requests/fourtoutici-search', { params: { q } });
+        if (res.data.unavailable) {
+          setError(res.data.error || 'Fourtoutici est injoignable pour le moment.');
+        } else {
+          setTitleResults(res.data.results || []);
+        }
+        return;
+      }
+
       const res = await axiosAdmin.get('/api/requests/direct-search', { params: { mode, q } });
 
       if (res.data.unavailable) {
@@ -248,8 +279,10 @@ const DirectSourceSearch = ({
       .filter(([, shelves]) => shelves.length)
       .map(([userId, shelves]) => ({ userId, shelves }));
 
+    const isFourtoutici = mode === 'fourtoutici';
+
     return {
-      ebookId: book.id,
+      ...(isFourtoutici ? { fileId: book.id, source: 'fourtoutici' } : { ebookId: book.id }),
       title: book.title,
       author: book.author || (selectedGroup?.type === 'author' ? selectedGroup.name : '') || '',
       link: book.valentineUrl || '',
@@ -307,10 +340,17 @@ const DirectSourceSearch = ({
       else if (result.partial) partial++;
       else failed++;
 
-      // Pause anti-détection entre deux livres (voir constantes en haut du fichier)
+      // Pause anti-détection entre deux livres (voir constantes en haut du
+      // fichier) — n'a de sens que pour Valentine (risque de ban établi) ;
+      // Fourtoutici n'a ni quota ni protection anti-bot connue, donc pas de
+      // pause imposée pour ce mode.
       if (i < books.length - 1) {
-        setBatchProgress({ current: i + 1, total: books.length, waiting: true });
-        await sleep(randomDelay());
+        if (mode === 'fourtoutici') {
+          setBatchProgress({ current: i + 1, total: books.length, waiting: false });
+        } else {
+          setBatchProgress({ current: i + 1, total: books.length, waiting: true });
+          await sleep(randomDelay());
+        }
       }
     }
 
@@ -351,7 +391,7 @@ const DirectSourceSearch = ({
             <>
               <span className={gStyles.batchCount}>{selectedBooks.size} livre{selectedBooks.size > 1 ? 's' : ''} sélectionné{selectedBooks.size > 1 ? 's' : ''}</span>
               <button className={gStyles.batchBtn} onClick={handleBatchDownload} disabled={batchDownloading}>
-                Télécharger les {selectedBooks.size} livres{estimateBatchMinutes(selectedBooks.size) ? ` (~${estimateBatchMinutes(selectedBooks.size)} min)` : ''}
+                Télécharger les {selectedBooks.size} livres{estimateBatchMinutes(selectedBooks.size, mode !== 'fourtoutici') ? ` (~${estimateBatchMinutes(selectedBooks.size, mode !== 'fourtoutici')} min)` : ''}
               </button>
               <button className={gStyles.batchClear} onClick={() => setSelectedBooks(new Map())}>Tout désélectionner</button>
             </>
@@ -421,8 +461,10 @@ const DirectSourceSearch = ({
   return (
     <div className={styles.directSearch}>
       <p className={styles.warningNote}>
-        Recherche directe sur Valentine — ignore Google Books/Open Library/Hardcover.
-        Le résultat choisi est téléchargé immédiatement au clic sur "Télécharger",
+        {mode === 'fourtoutici'
+          ? 'Recherche directe sur Fourtoutici — ignore Google Books/Open Library/Hardcover.'
+          : 'Recherche directe sur Valentine — ignore Google Books/Open Library/Hardcover.'}
+        {' '}Le résultat choisi est téléchargé immédiatement au clic sur "Télécharger",
         sans passer par les champs du formulaire.
       </p>
 

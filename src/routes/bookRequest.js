@@ -145,6 +145,52 @@ router.get('/direct-search-books', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/requests/fourtoutici-search?q=...
+// Recherche directe distincte de Valentine : un seul champ plat (pas de mode
+// auteur/série, Fourtoutici n'a rien d'équivalent côté site). Gardée hors du
+// gate isDirectSearchEnabled() de Valentine (ban-risque) — sans objet ici,
+// Fourtoutici n'a ni quota ni protection anti-bot connue ; gate uniquement
+// sur son propre interrupteur marche/arrêt.
+router.get('/fourtoutici-search', requireAuth, async (req, res) => {
+  try {
+    const { getFourtouticiConfig, searchOnFourtoutici } = await import('../services/fourtouticiService.js');
+    const cfg = await getFourtouticiConfig();
+    if (!cfg.enabled) {
+      return res.json({ results: [], unavailable: true, error: 'Fourtoutici est désactivé par un administrateur.' });
+    }
+
+    const query = (req.query.q || '').trim();
+    if (query.length < 2) {
+      return res.status(400).json({ error: 'Requête trop courte (2 caractères minimum).' });
+    }
+
+    const { results } = await searchOnFourtoutici(query);
+    // Adapté à la forme attendue par DirectSourceSearch.jsx (mêmes clés que
+    // les résultats Valentine en mode titre : id, title, author, cover, size)
+    const mapped = results.map(r => ({
+      id: r.fileId,
+      title: r.title,
+      author: r.author,
+      // Fourtoutici n'impose aucun ordre "titre – auteur" côté uploadeurs
+      // (voir fourtouticiService.js) : sans demande existante à comparer, on
+      // ne peut pas deviner l'orientation ici comme le fait l'orchestrateur
+      // automatique. On transmet donc les deux, pour que le front propose
+      // d'inverser si le résultat affiché a l'air faux (ex. "Jacques Cellard"
+      // pris pour un titre alors que c'est l'auteur).
+      altTitle: r.altTitle,
+      altAuthor: r.altAuthor,
+      cover: r.cover,
+      size: r.size,
+      category: r.category,
+    }));
+    res.json({ results: mapped });
+  } catch (err) {
+    console.error(`[fourtoutici-search] q=${req.query.q} :`, err.message);
+    // 200 volontaire : le front distingue « aucun résultat » de « source injoignable »
+    res.json({ results: [], unavailable: true, error: err.message });
+  }
+});
+
 // POST /api/requests/direct-download — crée la demande + télécharge tout de
 // suite le livre choisi (ebookId Valentine), retour synchrone.
 router.post('/direct-download', requireAuth, directDownloadRequest);
