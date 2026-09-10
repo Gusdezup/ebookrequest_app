@@ -6,12 +6,13 @@ import ReadingList from '../models/ReadingList.js';
 import axios from 'axios';
 import { getGoogleBooksApiKey, isGoogleBooksSearchEnabled } from '../services/googleBooksConfig.js';
 import { fetchFromGoogle } from '../routes/googleBooks.js';
-import { cleanSeriesTitle, extractVolumeSubtitle } from '../utils/titleCleaning.js';
+import { cleanSeriesTitle, extractVolumeSubtitle, extractBareVolumeSubtitle } from '../utils/titleCleaning.js';
 import { authorMatchScore, titleMatchScore } from '../utils/textMatch.js';
 import { syncReadingEntryToHardcover } from '../services/hardcoverSyncService.js';
 import { sendPushToUser } from '../services/webPushService.js';
 import { downloadWithFallback } from '../services/connectorOrchestrator.js';
 import { downloadFromValentineById } from '../services/valentineService.js';
+import { downloadFromFourtoutici } from '../services/fourtouticiService.js';
 import { emitToUser, emitToAdmins } from '../services/socketService.js';
 
 const logAdminAction = async (adminId, adminUsername, action, request, details = '') => {
@@ -355,15 +356,28 @@ export const createBookRequest = async (req, res) => {
 // lance downloadWithFallback en tâche de fond sans attendre le résultat.
 export const directDownloadRequest = async (req, res) => {
   try {
-    const { isDirectSearchEnabled } = await import('../services/valentineService.js');
-    if (!(await isDirectSearchEnabled())) {
-      return res.status(403).json({ error: 'La recherche directe a été désactivée par un administrateur.' });
+    const { source, ebookId, fileId, title, author, link, publishedDate, category, targetUserId, selectedShelves, extraShelfTargets } = req.body;
+    const isFourtoutici = source === 'fourtoutici';
+
+    // Le gate de recherche directe diffère selon la source : celui de Valentine
+    // existe pour limiter le risque de ban (multiplie les échanges avec le
+    // site) — sans objet pour Fourtoutici, gardé simplement sur son propre
+    // interrupteur marche/arrêt (pas de risque équivalent, voir fourtouticiService.js).
+    if (isFourtoutici) {
+      const { getFourtouticiConfig } = await import('../services/fourtouticiService.js');
+      if (!(await getFourtouticiConfig()).enabled) {
+        return res.status(403).json({ error: 'Fourtoutici est désactivé par un administrateur.' });
+      }
+    } else {
+      const { isDirectSearchEnabled } = await import('../services/valentineService.js');
+      if (!(await isDirectSearchEnabled())) {
+        return res.status(403).json({ error: 'La recherche directe a été désactivée par un administrateur.' });
+      }
     }
 
-    const { ebookId, title, author, link, publishedDate, category, targetUserId, selectedShelves, extraShelfTargets } = req.body;
-
-    if (!ebookId || !title || !author) {
-      return res.status(400).json({ error: 'ebookId, titre et auteur sont obligatoires.' });
+    const sourceId = isFourtoutici ? fileId : ebookId;
+    if (!sourceId || !title || !author) {
+      return res.status(400).json({ error: `${isFourtoutici ? 'fileId' : 'ebookId'}, titre et auteur sont obligatoires.` });
     }
 
     // Étagères choisies (même logique que createBookRequest)
@@ -449,7 +463,7 @@ export const directDownloadRequest = async (req, res) => {
       ...(cleanedSelectedShelves !== undefined && { selectedShelves: cleanedSelectedShelves }),
       ...(resolvedExtraShelfTargets.length && { extraShelfTargets: resolvedExtraShelfTargets }),
       status: 'pending',
-      statusHistory: [{ status: 'pending', changedBy: user.username, note: 'Demande créée — recherche directe Valentine' }],
+      statusHistory: [{ status: 'pending', changedBy: user.username, note: `Demande créée — recherche directe ${isFourtoutici ? 'Fourtoutici' : 'Valentine'}` }],
     });
 
     await newRequest.save();
@@ -469,10 +483,13 @@ export const directDownloadRequest = async (req, res) => {
     }
 
     try {
-      // downloadFromValentineById appelle déjà runPostCompletionHooks en interne
-      // en cas de succès — les étagères stockées ci-dessus sont donc poussées
-      // automatiquement, sans code supplémentaire ici.
-      const result = await downloadFromValentineById(newRequest._id.toString(), ebookId);
+      // downloadFromValentineById / downloadFromFourtoutici appellent déjà
+      // runPostCompletionHooks en interne en cas de succès — les étagères
+      // stockées ci-dessus sont donc poussées automatiquement, sans code
+      // supplémentaire ici.
+      const result = isFourtoutici
+        ? await downloadFromFourtoutici(sourceId, newRequest._id.toString())
+        : await downloadFromValentineById(newRequest._id.toString(), sourceId);
       const completed = await BookRequest.findById(newRequest._id).lean();
       return res.status(201).json({ success: true, request: completed, ...result });
     } catch (dlErr) {
@@ -536,6 +553,9 @@ export const getMetadataCandidates = async (req, res) => {
     const cleanTitle = cleanSeriesTitle(request.title);
     const hasCleanTitle = cleanTitle && cleanTitle !== request.title.trim();
     const subtitle = extractVolumeSubtitle(request.title);
+    // Troisième motif ("Série N Titre", numéro nu) — voir extractBareVolumeSubtitle
+    // pour le raisonnement. N'est ajouté qu'en toute fin de liste ci-dessous.
+    const bareSubtitle = extractBareVolumeSubtitle(request.title);
 
     const queries = [
       `"${request.title}" "${request.author}"`,
@@ -546,6 +566,12 @@ export const getMetadataCandidates = async (req, res) => {
       request.title,
       ...(subtitle ? [subtitle] : []),
       ...(hasCleanTitle ? [cleanTitle] : []),
+      // Dernier recours absolu : risque de faux positif plus élevé que les
+      // motifs ci-dessus (un nombre au milieu d'un titre n'est pas toujours
+      // un numéro de tome, voir docstring), donc toujours en toute fin.
+      ...(bareSubtitle ? [`"${bareSubtitle}" "${request.author}"`] : []),
+      ...(bareSubtitle && authorReversed ? [`"${bareSubtitle}" "${authorReversed}"`] : []),
+      ...(bareSubtitle ? [bareSubtitle] : []),
     ];
 
     // (patch) : les 3 variantes sont maintenant TOUTES interrogées et fusionnées,
@@ -1281,8 +1307,13 @@ export const editUserRequest = async (req, res) => {
     const request = await BookRequest.findOne({ _id: id, user: req.user.id });
     if (!request) return res.status(404).json({ error: 'Demande non trouvée.' });
 
-    if (request.status !== 'pending') {
-      return res.status(403).json({ error: 'Seules les demandes en attente peuvent être modifiées.' });
+    // Corriger titre/auteur reste utile même après téléchargement (ex. une
+    // demande créée avec titre/auteur inversés par erreur — voir Fourtoutici,
+    // dont les noms de fichiers n'imposent aucun ordre fiable). On élargit
+    // donc au-delà de "pending seulement" : "completed" aussi, mais pas les
+    // statuts contestés/clos (reported, canceled) où ça n'a pas de sens.
+    if (!['pending', 'completed'].includes(request.status)) {
+      return res.status(403).json({ error: `Cette demande ne peut plus être modifiée (statut : ${request.status}).` });
     }
 
     const updates = { title: title.trim(), author: author.trim() };

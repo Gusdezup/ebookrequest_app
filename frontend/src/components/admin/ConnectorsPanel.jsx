@@ -583,6 +583,112 @@ function LibgenCard() {
   );
 }
 
+function FourtouticiCard() {
+  const [config, setConfig] = useState({ enabled: false, url: 'https://fourtoutici.cc' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [alert, setAlert] = useState(null);
+  const [status, setStatus] = useState(null); // 'ok' | 'error' | null
+
+  useEffect(() => {
+    axiosAdmin.get('/api/connectors/fourtoutici')
+      .then(res => {
+        const cfg = {
+          enabled: res.data.enabled ?? false,
+          url: res.data.url || 'https://fourtoutici.cc',
+        };
+        setConfig(cfg);
+        if (cfg.enabled) {
+          axiosAdmin.get('/api/connectors/fourtoutici/ping')
+            .then(() => setStatus('ok'))
+            .catch(() => setStatus('error'));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const showAlertMsg = (type, message) => {
+    setAlert({ type, message });
+    setTimeout(() => setAlert(null), 5000);
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await axiosAdmin.put('/api/connectors/fourtoutici', config);
+      showAlertMsg('success', 'Configuration enregistrée.');
+    } catch (err) {
+      showAlertMsg('error', err.response?.data?.error || 'Erreur lors de la sauvegarde.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return (
+    <div className={styles.card}>
+      <div className={styles.cardLoading}><div className={styles.spinner} /></div>
+    </div>
+  );
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <div className={styles.cardBrand}>
+          <div className={`${styles.cardLogoWrap} ${styles.cardLogoWrapAnnas}`}>
+            <span className={styles.annasLogoLetter}>F</span>
+          </div>
+          <div>
+            <p className={styles.cardName}>
+              Fourtoutici
+              {status && (
+                <span className={status === 'ok' ? styles.statusDotOk : styles.statusDotError} title={status === 'ok' ? 'Joignable' : 'Inaccessible'} />
+              )}
+            </p>
+            <p className={styles.cardDesc}>Bibliothèque communautaire francophone, API JSON directe : pas de login, pas de quota, pas de protection anti-bot connue. Le domaine change régulièrement au gré des blocages FAI — à ajuster ici si besoin.</p>
+          </div>
+        </div>
+        <label className={styles.switch}>
+          <input
+            type="checkbox"
+            checked={config.enabled}
+            onChange={e => setConfig(c => ({ ...c, enabled: e.target.checked }))}
+          />
+          <span className={styles.slider} />
+        </label>
+      </div>
+
+      <form className={styles.form} onSubmit={handleSave}>
+        <div className={styles.fieldRow}>
+          <label className={styles.fieldLabel}>URL</label>
+          <input
+            className={styles.fieldInput}
+            type="url"
+            placeholder="https://fourtoutici.cc"
+            value={config.url}
+            onChange={e => setConfig(c => ({ ...c, url: e.target.value }))}
+          />
+          <p className={styles.fieldHint}>À mettre à jour si le domaine change (.cc, .pro, .top…)</p>
+        </div>
+
+        {alert && (
+          <div className={`${styles.alert} ${alert.type === 'success' ? styles.alertSuccess : styles.alertError}`}>
+            {alert.type === 'success' ? <CheckIcon /> : <AlertIcon />}
+            {alert.message}
+          </div>
+        )}
+
+        <div className={styles.cardActions}>
+          <button type="submit" className={styles.btnPrimary} disabled={saving}>
+            {saving ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function TrendingCard() {
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -649,6 +755,7 @@ export default function ConnectorsPanel() {
       <ValentineCard />
       <AnnasArchiveCard />
       <LibgenCard />
+      <FourtouticiCard />
       <TrendingCard />
     </div>
   );

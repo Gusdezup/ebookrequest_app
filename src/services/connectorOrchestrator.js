@@ -6,6 +6,7 @@ import Notification from '../models/Notification.js';
 import { downloadFromValentine } from './valentineService.js';
 import { searchOnAnnasArchive, downloadFromAnnas, getAnnasArchiveConfig } from './annasArchiveService.js';
 import { searchOnLibgen, getLibgenConfig } from './libgenService.js';
+import { searchOnFourtoutici, downloadFromFourtoutici, getFourtouticiConfig } from './fourtouticiService.js';
 import appriseService from './appriseService.js';
 import { sendDownloadFailedToAdminsEmail, sendBookCompletedToAdminsEmail, sendKindleDelivery } from './emailService.js';
 import path from 'path';
@@ -271,9 +272,6 @@ export async function downloadWithFallback(title, author, requestId, category = 
       }
     }
 
-    // ── 2. Fallback Anna's Archive ───────────────────────────────────────────
-    console.log(`[Orchestrateur] Valentine n'a rien trouvé pour "${title}", essai Anna's Archive…`);
-
     // Nettoyer l'auteur (supprimer les points parasites de Google Books)
     const cleanAuthor = (author || '')
       .replace(/([A-ZÀ-Ÿa-zà-ÿ])\./g, '$1')
@@ -284,6 +282,122 @@ export async function downloadWithFallback(title, author, requestId, category = 
     const searchQueries = cleanAuthor
       ? [`${title} ${cleanAuthor}`, title]
       : [title];
+
+    // ── 1c. Fallback Fourtoutici ──────────────────────────────────────────────
+    // Site communautaire francophone : ni quota ni protection anti-bot connue,
+    // donc essayé avant Anna's Archive/LibGen. Placé après Valentine (et pas
+    // devant) tant que son taux de réussite en production n'est pas éprouvé —
+    // Valentine reste la source la plus fiable de la chaîne.
+    // Recherche + téléchargement propres à ce site (pas de md5 partagé avec
+    // Anna's/LibGen). L'auteur n'est extrait de façon fiable que pour le
+    // format EBOOK (BD/MANGA n'ont pas de séparateur auteur exploitable) —
+    // un résultat sans auteur n'est donc retenu que si le titre correspond
+    // fortement, plutôt que rejeté comme le ferait authorMatchScore seul.
+    const fourtouticiCfg = await getFourtouticiConfig().catch(() => ({ enabled: false }));
+    console.log(`[Orchestrateur][verbose] Config Fourtoutici :`, fourtouticiCfg);
+    if (fourtouticiCfg.enabled) {
+      console.log(`[Orchestrateur] Valentine n'a rien trouvé pour "${title}", essai Fourtoutici…`);
+      console.log(`[Orchestrateur][verbose] Requêtes de recherche à tenter :`, searchQueries);
+      let ftResults = [];
+      for (const q of searchQueries) {
+        try {
+          const { results } = await searchOnFourtoutici(q);
+          console.log(`[Orchestrateur][verbose] Fourtoutici renvoie ${results.length} résultat(s) pour "${q}"`);
+          if (results.length) {
+            ftResults = results;
+            console.log(`[Orchestrateur] Fourtoutici : ${results.length} résultat(s) pour "${q}"`);
+            break;
+          }
+        } catch (err) {
+          console.log(`[Orchestrateur] Fourtoutici échec pour "${q}": ${err.message}`);
+          console.log(`[Orchestrateur][verbose] Détail erreur :`, err.stack);
+        }
+      }
+
+      if (ftResults.length) {
+        const titleNormFt = normalizeForMatch(title);
+        const reqVolumeFt = extractVolumeNumber(title);
+
+        // Fourtoutici n'impose pas d'ordre strict "titre – auteur" côté uploadeurs
+        // (certains inversent) : on teste les deux orientations par candidat et on
+        // retient celle qui correspond le mieux à la demande, plutôt que de figer
+        // l'ordre a priori (voir parseTitleAuthor dans fourtouticiService.js).
+        const scoreOrientation = (candTitle, candAuthor) => ({
+          candTitle,
+          candAuthor,
+          authorScore: authorMatchScore(author, candAuthor),
+          titleMatch: normalizeForMatch(candTitle).includes(titleNormFt) ||
+                      titleNormFt.includes(normalizeForMatch(candTitle)),
+        });
+
+        const mappedFt = ftResults.map(r => {
+          const resVolume = extractVolumeNumber(r.title);
+          const volumeOk = reqVolumeFt === null || resVolume === reqVolumeFt;
+
+          const primary = scoreOrientation(r.title, r.author);
+          const alt = r.altTitle ? scoreOrientation(r.altTitle, r.altAuthor) : null;
+          const best = alt && (
+            (alt.titleMatch && !primary.titleMatch) ||
+            (alt.titleMatch === primary.titleMatch && alt.authorScore > primary.authorScore)
+          ) ? alt : primary;
+
+          return {
+            ...r,
+            title: best.candTitle,
+            author: best.candAuthor,
+            authorScore: best.authorScore,
+            titleMatch: best.titleMatch,
+            orientationSwapped: best === alt,
+            volumeOk,
+          };
+        });
+
+        const scoredFt = mappedFt
+          .filter(r => r.volumeOk && (r.authorScore >= MIN_AUTHOR_SCORE || (r.author === null && r.titleMatch)));
+        console.log(`[Orchestrateur][verbose] Détail du scoring (demande: titre="${title}", auteur="${author}") :`,
+          mappedFt.map(r => ({
+            title: r.title,
+            author: r.author,
+            orientationSwapped: r.orientationSwapped,
+            authorScore: r.authorScore,
+            titleMatch: r.titleMatch,
+            retained: scoredFt.some(s => s.fileId === r.fileId),
+          }))
+        );
+        scoredFt.sort((a, b) => {
+          if (a.titleMatch !== b.titleMatch) return a.titleMatch ? -1 : 1;
+          return b.authorScore - a.authorScore;
+        });
+
+        if (scoredFt.length) {
+          const bestFt = scoredFt[0];
+          console.log(`[Orchestrateur] Fourtoutici → "${bestFt.title}" / "${bestFt.author || '?'}" (score auteur: ${bestFt.authorScore.toFixed(2)})`);
+          try {
+            await downloadFromFourtoutici(bestFt.fileId, requestId);
+            connectorsTried.push('fourtoutici');
+            const afterFourtoutici = await BookRequest.findById(requestId).lean();
+            if (afterFourtoutici?.status === 'completed') {
+              console.log(`[Orchestrateur] ✓ Fourtoutici a complété "${title}"`);
+              await logDownload({ bookRequest: bookRequest || afterFourtoutici, connector: 'fourtoutici', success: true });
+              await notifyCompletion(afterFourtoutici);
+              return;
+            }
+          } catch (err) {
+            console.log(`[Orchestrateur] Téléchargement Fourtoutici échoué pour "${title}": ${err.message}`);
+            await logDownload({ bookRequest: bookRequest || { title, author }, connector: 'fourtoutici', success: false, error: err.message });
+          }
+        } else {
+          console.log(`[Orchestrateur] Fourtoutici : aucun résultat avec auteur/titre compatible pour "${title}"`);
+        }
+      } else {
+        console.log(`[Orchestrateur] Fourtoutici : aucun résultat pour "${title}"`);
+      }
+    } else {
+      console.log(`[Orchestrateur] Fourtoutici désactivé, skip.`);
+    }
+
+    // ── 2. Fallback Anna's Archive ───────────────────────────────────────────
+    console.log(`[Orchestrateur] Essai Anna's Archive pour "${title}"…`);
 
     // Un échec (FlareSolverr en erreur transitoire, timeout, etc.) sur une variante de
     // requête ne doit pas faire abandonner la recherche — on tente les autres variantes

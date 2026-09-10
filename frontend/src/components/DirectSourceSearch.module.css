@@ -201,3 +201,22 @@
   margin-bottom: 0.75rem;
 }
 
+.swapBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg3);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  border-radius: var(--radius);
+  padding: 0.2rem 0.45rem;
+  margin-top: 0.3rem;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.swapBtn:hover {
+  color: var(--color-accent, #a78bfa);
+  border-color: var(--color-accent, #a78bfa);
+}
