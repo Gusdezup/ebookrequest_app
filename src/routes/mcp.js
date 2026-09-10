@@ -13,6 +13,10 @@ const TOOLS_USER = [
   { name: 'check_availability', description: 'Vérifier la disponibilité d\'un livre' },
   { name: 'get_my_stats',       description: 'Mon quota et mes statistiques' },
   { name: 'get_my_library',     description: 'Ma bibliothèque de lecture' },
+  { name: 'direct_search',       description: 'Recherche directe et immédiate sur Valentine (titre, auteur ou série)' },
+  { name: 'direct_search_books', description: 'Lister les livres d\'une fiche auteur ou série trouvée par direct_search' },
+  { name: 'direct_download',     description: 'Télécharger immédiatement un résultat de recherche directe' },
+  { name: 'get_my_shelves',      description: 'Lister mes étagères Calibre-Web configurées' },
 ];
 
 const TOOLS_ADMIN = [
