@@ -6,6 +6,8 @@ import ReadingList from '../models/ReadingList.js';
 import axios from 'axios';
 import { getGoogleBooksApiKey, isGoogleBooksSearchEnabled } from '../services/googleBooksConfig.js';
 import { fetchFromGoogle } from '../routes/googleBooks.js';
+import { cleanSeriesTitle, extractVolumeSubtitle } from '../utils/titleCleaning.js';
+import { authorMatchScore, titleMatchScore } from '../utils/textMatch.js';
 import { syncReadingEntryToHardcover } from '../services/hardcoverSyncService.js';
 import { sendPushToUser } from '../services/webPushService.js';
 import { downloadWithFallback } from '../services/connectorOrchestrator.js';
@@ -522,10 +524,28 @@ export const getMetadataCandidates = async (req, res) => {
     const authorWords = (request.author || '').trim().split(/\s+/).filter(Boolean);
     const authorReversed = authorWords.length > 1 ? [...authorWords].reverse().join(' ') : null;
 
+    // (patch) : requêtes supplémentaires avec des titres "nettoyés" — deux
+    // structures possibles selon le livre, donc deux extractions distinctes :
+    // - "Série - Tome N" (rien après le numéro, ex. "Dune - Tome 1") :
+    //   cleanSeriesTitle garde le nom de série avant le séparateur ("Dune").
+    // - "Série TN : Sous-titre" (ex. "Briar Université T1 : The Chase") :
+    //   extractVolumeSubtitle garde le sous-titre après le ":" ("The Chase"),
+    //   souvent le seul titre sous lequel Google Books indexe le livre —
+    //   sans ça, aucune requête ci-dessus ne peut matcher et on ne remonte
+    //   que du bruit sans rapport.
+    const cleanTitle = cleanSeriesTitle(request.title);
+    const hasCleanTitle = cleanTitle && cleanTitle !== request.title.trim();
+    const subtitle = extractVolumeSubtitle(request.title);
+
     const queries = [
       `"${request.title}" "${request.author}"`,
       ...(authorReversed ? [`"${request.title}" "${authorReversed}"`] : []),
+      ...(subtitle ? [`"${subtitle}" "${request.author}"`] : []),
+      ...(subtitle && authorReversed ? [`"${subtitle}" "${authorReversed}"`] : []),
+      ...(hasCleanTitle ? [`"${cleanTitle}" "${request.author}"`] : []),
       request.title,
+      ...(subtitle ? [subtitle] : []),
+      ...(hasCleanTitle ? [cleanTitle] : []),
     ];
 
     // (patch) : les 3 variantes sont maintenant TOUTES interrogées et fusionnées,
@@ -569,6 +589,23 @@ export const getMetadataCandidates = async (req, res) => {
         items.push(item);
       }
     }
+    // (patch) : les requêtes entre guillemets ("phrase exacte") cherchent sur
+    // TOUT le texte indexé par Google (description, extraits...), pas
+    // seulement titre/auteur — un roman sans rapport dont le résumé cite "les
+    // fans de The Chase d'Elle Kennedy adoreront aussi..." matche donc lui
+    // aussi la requête, et l'ordre de fusion (par requête, pas par pertinence
+    // globale) peut le placer avant le vrai livre. On retrie ici par score
+    // combiné titre + auteur (tri stable : à score égal, l'ordre de fusion
+    // d'origine est conservé). Le titre domine le tri (poids ×2) — c'est le
+    // critère de base : "The Chase" doit passer avant "The Score" même si
+    // les deux ont Elle Kennedy comme auteur.
+    const titleCandidates = [request.title, subtitle, cleanTitle].filter(Boolean);
+    const scoreOf = (item) => {
+      const t = titleMatchScore(titleCandidates, item.volumeInfo?.title || '');
+      const a = authorMatchScore(request.author, (item.volumeInfo?.authors || []).join(' '));
+      return t * 2 + a;
+    };
+    items.sort((a, b) => scoreOf(b) - scoreOf(a));
     items = items.slice(0, 8);
 
     if (!items.length) {

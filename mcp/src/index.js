@@ -246,6 +246,99 @@ function buildServer(api) {
   );
 
   server.tool(
+    'direct_search',
+    'Recherche directe et immédiate sur Valentine.wtf (titre, auteur ou série), en contournant le workflow normal de demande/attente. Peut être désactivée par un administrateur. En mode auteur/série, renvoie une liste de fiches à choisir (utiliser ensuite direct_search_books avec l\'url choisie).',
+    {
+      query: z.string().describe('Terme de recherche : titre du livre, nom d\'auteur ou nom de série'),
+      mode:  z.enum(['title', 'author', 'series']).optional().default('title').describe('Type de recherche'),
+    },
+    async ({ query, mode }) => {
+      const res = await api.get('/requests/direct-search', { params: { mode, q: query } });
+      const d = res.data;
+      if (d.unavailable) return { content: [{ type: 'text', text: `⚠️ Recherche directe indisponible : ${d.error || 'source injoignable.'}` }] };
+
+      if (d.mode === 'title') {
+        const results = d.results || [];
+        if (!results.length) return { content: [{ type: 'text', text: 'Aucun résultat.' }] };
+        const lines = results.map(r => `• **${r.title}** — ${r.author || 'Auteur inconnu'}\n  id: \`${r.id}\`${r.valentineUrl ? `\n  link: \`${r.valentineUrl}\`` : ''}`);
+        return { content: [{ type: 'text', text: lines.join('\n\n') }] };
+      }
+
+      const matches = d.matches || [];
+      if (!matches.length) return { content: [{ type: 'text', text: 'Aucune fiche trouvée.' }] };
+      const label = mode === 'series' ? 'série' : 'auteur';
+      const lines = matches.map(m => `• **${m.name}**${m.hint ? ` (${m.hint})` : ''}\n  url: \`${m.url}\``);
+      return { content: [{ type: 'text', text: `Fiches ${label} trouvées (utilisez direct_search_books avec l'url choisie pour lister les livres) :\n\n${lines.join('\n\n')}` }] };
+    }
+  );
+
+  server.tool(
+    'direct_search_books',
+    'Liste les livres d\'une fiche auteur ou série Valentine trouvée via direct_search (mode author ou series)',
+    {
+      type: z.enum(['author', 'series']).describe('Type de fiche'),
+      url:  z.string().describe('URL relative de la fiche, renvoyée par direct_search (champ url)'),
+      name: z.string().optional().describe('Nom de l\'auteur ou de la série (repli si un livre n\'a pas d\'auteur détecté)'),
+    },
+    async ({ type, url, name }) => {
+      const params = { type, url };
+      if (name) params.name = name;
+      const res = await api.get('/requests/direct-search-books', { params });
+      const d = res.data;
+      if (d.unavailable) return { content: [{ type: 'text', text: `⚠️ Recherche directe indisponible : ${d.error || 'source injoignable.'}` }] };
+      const results = d.results || [];
+      if (!results.length) return { content: [{ type: 'text', text: 'Aucun livre trouvé pour cette fiche.' }] };
+      const lines = results.map(r => `• **${r.title}** — ${r.author || 'Auteur inconnu'}\n  id: \`${r.id}\`${r.valentineUrl ? `\n  link: \`${r.valentineUrl}\`` : ''}`);
+      return { content: [{ type: 'text', text: lines.join('\n\n') }] };
+    }
+  );
+
+  server.tool(
+    'direct_download',
+    'Télécharge immédiatement un livre trouvé via direct_search / direct_search_books et crée la demande correspondante, en contournant le workflow normal d\'attente',
+    {
+      ebook_id:       z.string().describe('ID Valentine du livre (champ id des résultats de direct_search / direct_search_books)'),
+      title:          z.string().describe('Titre du livre'),
+      author:         z.string().describe('Auteur du livre'),
+      link:           z.string().optional().describe('Lien externe optionnel associé à la demande'),
+      published_date: z.string().optional().describe('Date de publication (YYYY, YYYY-MM ou YYYY-MM-DD)'),
+      category:       z.enum(['ebook', 'comic', 'manga']).optional().default('ebook'),
+      shelves:        z.array(z.string()).optional().describe('Noms exacts des étagères Calibre-Web (voir get_my_shelves) où pousser ce livre. Si absent, les étagères par défaut du profil sont utilisées.'),
+    },
+    async ({ ebook_id, title, author, link, published_date, category, shelves }) => {
+      const res = await api.post('/requests/direct-download', {
+        ebookId: ebook_id,
+        title,
+        author,
+        link,
+        publishedDate: published_date,
+        category,
+        selectedShelves: shelves,
+      });
+      const d = res.data;
+      if (d.success === false) {
+        return { content: [{ type: 'text', text: `⏳ Demande créée pour **${title}** mais le téléchargement immédiat a échoué : ${d.error || 'erreur inconnue'}. Elle reste en attente pour un nouvel essai.` }] };
+      }
+      return { content: [{ type: 'text', text: `✅ **${title}** téléchargé et ajouté (${category}).` }] };
+    }
+  );
+
+  server.tool(
+    'get_my_shelves',
+    'Lister mes étagères Calibre-Web configurées (noms à utiliser avec direct_download)',
+    {},
+    async () => {
+      const res = await api.get('/users/calibre');
+      const d = res.data;
+      if (!d.enabled) return { content: [{ type: 'text', text: 'Calibre-Web n\'est pas configuré/activé sur votre compte.' }] };
+      const shelves = d.shelves || [];
+      if (!shelves.length) return { content: [{ type: 'text', text: 'Aucune étagère configurée.' }] };
+      const lines = shelves.map(s => `• ${s.name}${s.isDefault ? ' (par défaut)' : ''}`);
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    }
+  );
+
+  server.tool(
     'get_user_list',
     '[Admin] Lister les utilisateurs avec leur quota, rôle et dernière activité',
     {},
