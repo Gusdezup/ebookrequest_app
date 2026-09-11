@@ -16,6 +16,7 @@ const ShelfPicker = ({
   extraShelfSelections = {},
   toggleExtraShelf,
   buttonClassName,
+  openUp = true,
 }) => {
   const [open, setOpen] = useState(false);
   const extraShelfCount = Object.values(extraShelfSelections).reduce((n, arr) => n + arr.length, 0);
@@ -37,7 +38,7 @@ const ShelfPicker = ({
       </button>
 
       {open && (
-        <div className={styles.panel}>
+        <div className={`${styles.panel} ${openUp ? '' : styles.panelDown}`}>
           {calibreEnabled && (
             <>
               <div className={styles.sectionTitle}>Envoyer ce livre vers :</div>

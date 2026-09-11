@@ -90,6 +90,34 @@ router.get('/direct-search-status', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/requests/valentine-source-status — le front s'en sert pour savoir
+// s'il doit proposer les onglets Titre/Auteur/Série dans la recherche directe
+// (indépendant de directSearchEnabled ci-dessus, qui coupe toute la fonctionnalité
+// "Recherche directe" ; ici on ne masque que la partie Valentine si le connecteur
+// lui-même est désactivé — même logique que manual-mode-status, ouvert à tous les
+// users connectés contrairement aux routes /api/connectors équivalentes réservées admin).
+router.get('/valentine-source-status', requireAuth, async (req, res) => {
+  try {
+    const ConnectorSettings = (await import('../models/ConnectorSettings.js')).default;
+    const doc = await ConnectorSettings.findOne({ service: 'valentine' }).lean();
+    res.json({ enabled: doc?.enabled ?? false });
+  } catch {
+    res.json({ enabled: false });
+  }
+});
+
+// GET /api/requests/fourtoutici-source-status — pareil que ci-dessus, pour
+// l'onglet "Fourtoutici".
+router.get('/fourtoutici-source-status', requireAuth, async (req, res) => {
+  try {
+    const ConnectorSettings = (await import('../models/ConnectorSettings.js')).default;
+    const doc = await ConnectorSettings.findOne({ service: 'fourtoutici' }).lean();
+    res.json({ enabled: doc?.enabled ?? false });
+  } catch {
+    res.json({ enabled: false });
+  }
+});
+
 // GET /api/requests/direct-search?mode=title|author|series&q=...
 router.get('/direct-search', requireAuth, async (req, res) => {
   try {
@@ -141,6 +169,52 @@ router.get('/direct-search-books', requireAuth, async (req, res) => {
     res.json({ results });
   } catch (err) {
     console.error(`[direct-search-books] type=${req.query.type} url=${req.query.url} :`, err.message);
+    res.json({ results: [], unavailable: true, error: err.message });
+  }
+});
+
+// GET /api/requests/fourtoutici-search?q=...
+// Recherche directe distincte de Valentine : un seul champ plat (pas de mode
+// auteur/série, Fourtoutici n'a rien d'équivalent côté site). Gardée hors du
+// gate isDirectSearchEnabled() de Valentine (ban-risque) — sans objet ici,
+// Fourtoutici n'a ni quota ni protection anti-bot connue ; gate uniquement
+// sur son propre interrupteur marche/arrêt.
+router.get('/fourtoutici-search', requireAuth, async (req, res) => {
+  try {
+    const { getFourtouticiConfig, searchOnFourtoutici } = await import('../services/fourtouticiService.js');
+    const cfg = await getFourtouticiConfig();
+    if (!cfg.enabled) {
+      return res.json({ results: [], unavailable: true, error: 'Fourtoutici est désactivé par un administrateur.' });
+    }
+
+    const query = (req.query.q || '').trim();
+    if (query.length < 2) {
+      return res.status(400).json({ error: 'Requête trop courte (2 caractères minimum).' });
+    }
+
+    const { results } = await searchOnFourtoutici(query);
+    // Adapté à la forme attendue par DirectSourceSearch.jsx (mêmes clés que
+    // les résultats Valentine en mode titre : id, title, author, cover, size)
+    const mapped = results.map(r => ({
+      id: r.fileId,
+      title: r.title,
+      author: r.author,
+      // Fourtoutici n'impose aucun ordre "titre – auteur" côté uploadeurs
+      // (voir fourtouticiService.js) : sans demande existante à comparer, on
+      // ne peut pas deviner l'orientation ici comme le fait l'orchestrateur
+      // automatique. On transmet donc les deux, pour que le front propose
+      // d'inverser si le résultat affiché a l'air faux (ex. "Jacques Cellard"
+      // pris pour un titre alors que c'est l'auteur).
+      altTitle: r.altTitle,
+      altAuthor: r.altAuthor,
+      cover: r.cover,
+      size: r.size,
+      category: r.category,
+    }));
+    res.json({ results: mapped });
+  } catch (err) {
+    console.error(`[fourtoutici-search] q=${req.query.q} :`, err.message);
+    // 200 volontaire : le front distingue « aucun résultat » de « source injoignable »
     res.json({ results: [], unavailable: true, error: err.message });
   }
 });

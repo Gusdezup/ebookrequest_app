@@ -73,10 +73,10 @@ const MODE_ICONS = {
 };
 
 const SEARCH_MODES = [
-  { value: 'global', label: 'Global' },
   { value: 'title',  label: 'Titre'  },
   { value: 'author', label: 'Auteur' },
   { value: 'series', label: 'Série'  },
+  { value: 'global', label: 'Global' },
 ];
 
 const PLACEHOLDERS = {
@@ -288,6 +288,11 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
     <div className={styles.googleBooksSearch}>
       <form onSubmit={handleSubmit} className={styles.searchForm}>
 
+        <p className={styles.warningNote}>
+          Recherche via Google Books / Open Library / Hardcover — le résultat choisi
+          pré-remplit le formulaire de demande, sans télécharger immédiatement.
+        </p>
+
         {/* Sélecteur de mode — mêmes boutons que la recherche directe */}
         <div className={styles.modeToggle}>
           {SEARCH_MODES.map(m => (
@@ -303,55 +308,50 @@ const GoogleBooksSearch = ({ onSelectBook, onBatchSelectBooks, batchSubmitting =
           ))}
         </div>
 
-        <div className={styles.searchBar}>
+        <div className={styles.searchRow}>
+          <div className={styles.searchBar}>
 
-          {/* Champ unique */}
-          <div className={styles.inputWrap} ref={inputWrapRef}>
-            <input
-              ref={inputRef}
-              type="text"
-              value={value}
-              onChange={handleChange}
-              className={styles.searchInputInline}
-              autoComplete="off"
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-            />
-            <span
-              className={`${styles.fakePlaceholder} ${(value || focused) ? styles.fakePlaceholderHidden : ''}`}
-              aria-hidden="true"
-            >
+            {/* Champ unique */}
+            <div className={styles.inputWrap} ref={inputWrapRef}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={value}
+                onChange={handleChange}
+                className={styles.searchInputInline}
+                autoComplete="off"
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+              />
               <span
-                ref={fakePlaceholderRef}
-                className={`${styles.fakePlaceholderText} ${placeholderScrolls ? styles.fakePlaceholderScrolling : ''}`}
+                className={`${styles.fakePlaceholder} ${(value || focused) ? styles.fakePlaceholderHidden : ''}`}
+                aria-hidden="true"
               >
-                {placeholder}
+                <span
+                  ref={fakePlaceholderRef}
+                  className={`${styles.fakePlaceholderText} ${placeholderScrolls ? styles.fakePlaceholderScrolling : ''}`}
+                >
+                  {placeholder}
+                </span>
               </span>
-            </span>
+            </div>
+
+            {/* Bouton scanner */}
+            <button
+              type="button"
+              className={styles.scanBtn}
+              onClick={() => setScanning(true)}
+              aria-label="Scanner un code-barres"
+              title="Scanner le code-barres d'un livre"
+            >
+              <IconCamera size={16} />
+            </button>
           </div>
 
-          {/* Bouton scanner */}
-          <button
-            type="button"
-            className={styles.scanBtn}
-            onClick={() => setScanning(true)}
-            aria-label="Scanner un code-barres"
-            title="Scanner le code-barres d'un livre"
-          >
-            <IconCamera size={16} />
-          </button>
-
-          {/* Bouton recherche */}
+          {/* Bouton recherche — même gabarit que celui de la recherche directe */}
           <button type="submit" className={styles.searchBtn} disabled={!canSubmit} aria-label="Rechercher">
-            {isLoading ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={styles.spinIcon}>
-                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-              </svg>
-            ) : (
-              <IconSearch size={18} />
-            )}
+            {isLoading ? 'Recherche…' : 'Rechercher'}
           </button>
-
         </div>
       </form>
 

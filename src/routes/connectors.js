@@ -248,6 +248,76 @@ router.get('/libgen/ping', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+// ── GET /api/connectors/fourtoutici ──────────────────────────────────────────
+router.get('/fourtoutici', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { getFourtouticiConfig } = await import('../services/fourtouticiService.js');
+    const doc = await getFourtouticiConfig();
+    res.json({ enabled: doc.enabled, url: doc.url });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── PUT /api/connectors/fourtoutici ──────────────────────────────────────────
+router.put('/fourtoutici', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { saveFourtouticiConfig } = await import('../services/fourtouticiService.js');
+    const { enabled, url } = req.body;
+    const doc = await saveFourtouticiConfig({ enabled, url });
+    if (enabled !== undefined) logSettingsToggle(req, 'Fourtoutici', doc.enabled);
+    res.json({ enabled: doc.enabled, url: doc.url });
+  } catch {
+    res.status(500).json({ error: 'Erreur lors de la sauvegarde' });
+  }
+});
+
+// ── GET /api/connectors/fourtoutici/search?q=... ─────────────────────────────
+router.get('/fourtoutici/search', requireAuth, requireAdmin, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'Paramètre q requis' });
+  try {
+    const { getFourtouticiConfig, searchOnFourtoutici } = await import('../services/fourtouticiService.js');
+    if (!(await getFourtouticiConfig()).enabled) {
+      return res.json({ results: [], baseUrl: null, disabled: true });
+    }
+    const { results, baseUrl } = await searchOnFourtoutici(q);
+    res.json({ results, baseUrl });
+  } catch (err) {
+    // 200 volontaire : le front distingue « aucun résultat » de « source injoignable »
+    res.json({ results: [], baseUrl: null, unavailable: true, error: err.message });
+  }
+});
+
+// ── GET /api/connectors/fourtoutici/ping ─────────────────────────────────────
+router.get('/fourtoutici/ping', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { pingFourtoutici } = await import('../services/fourtouticiService.js');
+    const { baseUrl } = await pingFourtoutici();
+    res.json({ ok: true, baseUrl });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message });
+  }
+});
+
+// ── POST /api/connectors/fourtoutici/download ────────────────────────────────
+// Déclenchement manuel admin depuis les résultats de recherche directe.
+router.post('/fourtoutici/download', requireAuth, requireAdmin, async (req, res) => {
+  const { fileId, requestId } = req.body;
+  if (!fileId || !requestId) return res.status(400).json({ error: 'fileId et requestId requis' });
+  try {
+    const { downloadFromFourtoutici } = await import('../services/fourtouticiService.js');
+    const result = await downloadFromFourtoutici(fileId, requestId);
+    const br = await BookRequest.findById(requestId).lean();
+    if (br?.status === 'completed') triggerKindleIfEnabled(br);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    const br = await BookRequest.findById(requestId).lean().catch(() => null);
+    await DownloadLog.create({ bookRequestId: requestId, title: br?.title || '', author: br?.author || '', username: br?.username || '', connector: 'fourtoutici', success: false, error: err.message.slice(0, 500), triggeredBy: 'admin' }).catch(() => {});
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/connectors/annasarchive ─────────────────────────────────────────
 router.get('/annasarchive', requireAuth, requireAdmin, async (req, res) => {
   try {

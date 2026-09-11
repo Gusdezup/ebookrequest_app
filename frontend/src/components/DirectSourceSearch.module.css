@@ -14,6 +14,7 @@
 
 .modeToggle {
   display: inline-flex;
+  flex-wrap: wrap;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -23,7 +24,9 @@
 .modeBtn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
+  min-width: 130px;
   border: none;
   background: var(--color-bg3);
   color: var(--color-text-muted);
@@ -46,7 +49,8 @@
 
 .searchInput {
   flex: 1;
-  height: 44px;
+  height: 48px;
+  box-sizing: border-box;
   padding: 0 0.9rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -62,7 +66,8 @@
 }
 
 .searchBtn {
-  height: 44px;
+  height: 48px;
+  box-sizing: border-box;
   padding: 0 1.1rem;
   border: none;
   border-radius: var(--radius);
@@ -75,18 +80,6 @@
 .searchBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.shelfRow {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.75rem;
-}
-
-.shelfHint {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
 }
 
 .groupBanner {
@@ -201,3 +194,22 @@
   margin-bottom: 0.75rem;
 }
 
+.swapBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg3);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  border-radius: var(--radius);
+  padding: 0.2rem 0.45rem;
+  margin-top: 0.3rem;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.swapBtn:hover {
+  color: var(--color-accent, #a78bfa);
+  border-color: var(--color-accent, #a78bfa);
+}

@@ -128,11 +128,14 @@ const UserDashboard = () => {
     return ext.toUpperCase();
   };
 
-  // Récupère les demandes de l'utilisateur connecté
+  // Récupère les demandes de l'utilisateur connecté — toujours l'ensemble
+  // complet, jamais filtré côté serveur : les compteurs par onglet (ci-dessous)
+  // ont besoin du total réel en permanence, pas seulement du sous-ensemble de
+  // l'onglet actif. Le filtre par statut se fait côté client (filteredRequests).
   const fetchRequests = async () => {
     try {
       setLoading(true);
-      const response = await axiosAdmin.get(`/api/requests/my-requests?status=${filter === 'all' ? '' : filter}`);
+      const response = await axiosAdmin.get(`/api/requests/my-requests`);
       
       // Tri des demandes pour afficher : Signalées, Terminées, En attente, puis Annulées
       const sortedRequests = [...response.data].sort((a, b) => {
@@ -370,6 +373,26 @@ const UserDashboard = () => {
     }
   };
 
+  // Corrige une demande dont le titre et l'auteur ont été inversés à la
+  // création (ex. sources sans champs structurés comme Fourtoutici) — swap
+  // en base via /user-edit (désormais autorisé aussi sur "completed"), puis
+  // relance immédiatement la recherche de métadonnées pour vérifier que ça
+  // corrige bien le problème d'un coup d'œil.
+  const swapRequestTitleAuthor = async () => {
+    if (!metadataModal?.request) return;
+    const { _id, title, author } = metadataModal.request;
+    setMetadataModal(prev => ({ ...prev, loading: true }));
+    try {
+      const { data } = await axiosAdmin.patch(`/api/requests/${_id}/user-edit`, { title: author, author: title });
+      setRequests(prev => prev.map(r => r._id === _id ? { ...r, ...data.request } : r));
+      toast.success('Titre et auteur inversés.');
+      openMetadataPicker(data.request);
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Erreur lors de l'inversion titre/auteur.");
+      setMetadataModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   const applyMetadataChoice = async (candidate) => {
     if (!metadataModal?.request) return;
     setFetchingMetaId(metadataModal.request._id);
@@ -527,9 +550,10 @@ const UserDashboard = () => {
   
 
   // Refresh silencieux toutes les 30s (sans spinner, notifie si statut changé)
+  // Même raison que fetchRequests ci-dessus : ensemble complet, jamais filtré.
   const silentRefresh = async () => {
     try {
-      const response = await axiosAdmin.get(`/api/requests/my-requests?status=${filter === 'all' ? '' : filter}`);
+      const response = await axiosAdmin.get(`/api/requests/my-requests`);
       const STATUS_ORDER = { reported: 1, completed: 2, pending: 3, canceled: 4 };
       const sorted = [...response.data].sort((a, b) => {
         const diff = (STATUS_ORDER[a.status] || 3) - (STATUS_ORDER[b.status] || 3);
@@ -622,6 +646,7 @@ const UserDashboard = () => {
   const filteredRequests = (() => {
     const STATUS_ORDER = { reported: 1, completed: 2, pending: 3, canceled: 4 };
     const base = requests.filter(r => {
+      if (filter !== 'all' && r.status !== filter) return false;
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return r.title?.toLowerCase().includes(q) || r.author?.toLowerCase().includes(q);
@@ -906,7 +931,7 @@ const UserDashboard = () => {
                                 )}
                               </svg>
                             </button>
-                            {request.status === 'pending' && (
+                            {['pending', 'completed'].includes(request.status) && (
                               <button className={`${styles.iconBtn} ${styles.iconBtnEdit}`} onClick={() => openEditModal(request)} title="Modifier la demande">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -1223,7 +1248,7 @@ const UserDashboard = () => {
                         </svg>
                       )}
                     </button>
-                    {request.status === 'pending' && (
+                    {['pending', 'completed'].includes(request.status) && (
                       <button className={`${styles.iconBtn} ${styles.iconBtnEdit}`} onClick={() => openEditModal(request)} title="Modifier la demande">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -1293,9 +1318,30 @@ const UserDashboard = () => {
           <div className={styles.modalContent} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Choisir les métadonnées">
             <h2>Métadonnées Google Books</h2>
             <p className={styles.modalBookTitle}>« {metadataModal.request?.title} »</p>
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '1rem' }}>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '0.4rem' }}>
               Choisis le bon livre — rien n'est appliqué tant que tu n'as pas cliqué sur un résultat.
             </p>
+            {metadataModal.request?.author && (
+              <button
+                type="button"
+                onClick={swapRequestTitleAuthor}
+                disabled={metadataModal.loading}
+                title="Si le titre et l'auteur ont été inversés à la création de la demande (ex. sources sans champs structurés comme Fourtoutici)"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  fontSize: '0.75rem', color: 'var(--color-text-muted)',
+                  background: 'var(--color-bg3)', border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius)', padding: '0.25rem 0.55rem',
+                  cursor: 'pointer', marginBottom: '1rem',
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                  <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                </svg>
+                Inverser titre / auteur (« {metadataModal.request.author} » → titre)
+              </button>
+            )}
 
             {metadataModal.loading ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem 0' }}>

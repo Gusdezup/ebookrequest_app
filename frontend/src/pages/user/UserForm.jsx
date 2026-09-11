@@ -149,6 +149,8 @@ function UserForm() {
   const [calibreEnabled, setCalibreEnabled] = useState(false);
   const [directSearchAllowed, setDirectSearchAllowed] = useState(true); // optimiste, corrigé après fetch
   const [manualModeAllowed, setManualModeAllowed] = useState(true); // optimiste, corrigé après fetch
+  const [valentineSourceEnabled, setValentineSourceEnabled] = useState(true); // optimiste, corrigé après fetch
+  const [fourtouticiSourceEnabled, setFourtouticiSourceEnabled] = useState(true); // optimiste, corrigé après fetch
   const [calibreShelves, setCalibreShelves] = useState([]); // [{ name, isDefault }]
   const [selectedShelves, setSelectedShelves] = useState([]);
   // Multishelf multi-utilisateurs (admin) — comptes Calibre-Web ciblables en
@@ -223,6 +225,16 @@ function UserForm() {
                 setSearchMode(prev => (prev === 'manual' && !selectedBook) ? 'google' : prev);
               }
             })
+            .catch(() => {});
+          // Sources de la recherche directe (Valentine / Fourtoutici) — le front
+          // masque l'onglet correspondant dans DirectSourceSearch si désactivé
+          // côté admin, plutôt que de laisser l'utilisateur tomber sur une
+          // recherche qui répond systématiquement "injoignable".
+          axiosAdmin.get('/api/requests/valentine-source-status')
+            .then(r => { if (isMounted) setValentineSourceEnabled(r.data?.enabled !== false); })
+            .catch(() => {});
+          axiosAdmin.get('/api/requests/fourtoutici-source-status')
+            .then(r => { if (isMounted) setFourtouticiSourceEnabled(r.data?.enabled !== false); })
             .catch(() => {});
           await Promise.all(promises);
 
@@ -896,6 +908,22 @@ function UserForm() {
             </select>
           </div>
         )}
+
+        {/* Étagères — placées ici (plutôt que dans chaque mode séparément) pour
+            garder une position fixe quelle que soit la recherche en cours
+            (Détaillée / Manuel / Directe). ShelfPicker se masque tout seul si
+            calibreEnabled est faux et qu'il n'y a pas de cible additionnelle. */}
+        <ShelfPicker
+          calibreEnabled={calibreEnabled}
+          calibreShelves={calibreShelves}
+          selectedShelves={selectedShelves}
+          toggleShelf={toggleShelf}
+          extraTargetCandidates={extraTargetCandidates}
+          extraShelfSelections={extraShelfSelections}
+          toggleExtraShelf={toggleExtraShelf}
+          buttonClassName={styles.topRowShelfBtn}
+          openUp={false}
+        />
       </div>
 
       {message.text && (
@@ -920,8 +948,10 @@ function UserForm() {
           onCompleted={handleDirectCompleted}
           targetUserId={isAdmin ? targetUserId : ''}
           calibreEnabled={calibreEnabled}
-          calibreShelves={calibreShelves}
-          extraTargetCandidates={extraTargetCandidates}
+          selectedShelves={selectedShelves}
+          extraShelfSelections={extraShelfSelections}
+          valentineEnabled={valentineSourceEnabled}
+          fourtouticiEnabled={fourtouticiSourceEnabled}
         />
       )}
 
@@ -1078,16 +1108,6 @@ function UserForm() {
           </div>
 
           <div className={styles.formActions} style={{ position: 'relative' }}>
-            <ShelfPicker
-              calibreEnabled={calibreEnabled}
-              calibreShelves={calibreShelves}
-              selectedShelves={selectedShelves}
-              toggleShelf={toggleShelf}
-              extraTargetCandidates={extraTargetCandidates}
-              extraShelfSelections={extraShelfSelections}
-              toggleExtraShelf={toggleExtraShelf}
-              buttonClassName={styles.cancelButton}
-            />
             <button type="submit" className={styles.submitButton}
               disabled={isSubmitting || (quota && quota.remaining === 0)} aria-busy={isSubmitting}>
               {isSubmitting ? 'Soumission en cours…'
