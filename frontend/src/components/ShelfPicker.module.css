@@ -32,6 +32,13 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
+.panelDown {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 0.5rem;
+}
+
 .sectionTitle {
   font-size: 0.78rem;
   font-weight: 600;

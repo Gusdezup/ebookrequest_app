@@ -90,6 +90,34 @@ router.get('/direct-search-status', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/requests/valentine-source-status — le front s'en sert pour savoir
+// s'il doit proposer les onglets Titre/Auteur/Série dans la recherche directe
+// (indépendant de directSearchEnabled ci-dessus, qui coupe toute la fonctionnalité
+// "Recherche directe" ; ici on ne masque que la partie Valentine si le connecteur
+// lui-même est désactivé — même logique que manual-mode-status, ouvert à tous les
+// users connectés contrairement aux routes /api/connectors équivalentes réservées admin).
+router.get('/valentine-source-status', requireAuth, async (req, res) => {
+  try {
+    const ConnectorSettings = (await import('../models/ConnectorSettings.js')).default;
+    const doc = await ConnectorSettings.findOne({ service: 'valentine' }).lean();
+    res.json({ enabled: doc?.enabled ?? false });
+  } catch {
+    res.json({ enabled: false });
+  }
+});
+
+// GET /api/requests/fourtoutici-source-status — pareil que ci-dessus, pour
+// l'onglet "Fourtoutici".
+router.get('/fourtoutici-source-status', requireAuth, async (req, res) => {
+  try {
+    const ConnectorSettings = (await import('../models/ConnectorSettings.js')).default;
+    const doc = await ConnectorSettings.findOne({ service: 'fourtoutici' }).lean();
+    res.json({ enabled: doc?.enabled ?? false });
+  } catch {
+    res.json({ enabled: false });
+  }
+});
+
 // GET /api/requests/direct-search?mode=title|author|series&q=...
 router.get('/direct-search', requireAuth, async (req, res) => {
   try {
