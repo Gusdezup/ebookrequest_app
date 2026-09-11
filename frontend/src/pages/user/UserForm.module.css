@@ -194,6 +194,7 @@
   border-radius: 8px;
   padding: 0 0.75rem;
   height: 48px;
+  box-sizing: border-box;
   overflow: hidden;
   flex: 1;
   min-width: 0;
@@ -242,6 +243,32 @@
   flex-shrink: 0;
   height: 48px;
   box-sizing: border-box;
+}
+
+/* Bouton "Étagères" de la ligne du haut — même gabarit (hauteur, bordure,
+   fond) que .adminUserSelect et .toggleSearch juste à côté, pour rester
+   visuellement à niveau plutôt que de reprendre le style rouge "Annuler"
+   utilisé par l'instance du formulaire manuel. */
+.topRowShelfBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 1rem;
+  background: var(--color-bg3);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.topRowShelfBtn:hover {
+  border-color: var(--color-accent);
 }
 
 @media (max-width: 600px) {

@@ -9,10 +9,33 @@
   margin: 0 0 1rem 0;
 }
 
+/* Même style que .warningNote de DirectSourceSearch — phrase de contexte
+   juste au-dessus des boutons de mode, pour que ceux-ci restent à la même
+   hauteur/position quel que soit le mode de recherche (Détaillée/Directe). */
+.warningNote {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  background: var(--color-bg3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  margin: 0 0 0.75rem 0;
+}
+
 /* ── Barre de recherche unifiée ── */
+/* ── Ligne recherche : barre (champ + scanner) + bouton "Rechercher" séparé,
+   même agencement que DirectSourceSearch (.searchRow / .searchBtn) ── */
+.searchRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .searchBar {
   display: flex;
   align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-bg3);
@@ -27,13 +50,12 @@
 
 /* ── Sélecteur de mode — boutons (harmonisé avec la recherche directe) ── */
 .modeToggle {
-  display: flex;
-  width: 100%;
+  display: inline-flex;
   flex-wrap: wrap;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   overflow: hidden;
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.75rem;
 }
 
 .modeBtn {
@@ -41,7 +63,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  flex: 1 1 auto;
+  min-width: 130px;
   border: none;
   background: var(--color-bg3);
   color: var(--color-text-muted);
@@ -138,24 +160,28 @@
 
 .searchBtn {
   flex-shrink: 0;
+  height: 48px;
+  box-sizing: border-box;
   border: none;
-  border-left: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-accent);
-  padding: 0 1rem;
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: #fff;
+  padding: 0 1.1rem;
+  font-size: 0.9rem;
+  font-family: inherit;
   cursor: pointer;
-  display: flex;
+  white-space: nowrap;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s, color 0.2s;
+  transition: filter 0.15s;
 }
 
 .searchBtn:hover:not(:disabled) {
-  background: var(--color-accent);
-  color: #fff;
+  filter: brightness(1.08);
 }
 
-.searchBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.searchBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .spinIcon { animation: spin 0.8s linear infinite; }
 
