@@ -12,10 +12,25 @@
   margin: 0 0 0.75rem 0;
 }
 
+@media (max-width: 640px) {
+  .warningNote {
+    display: none;
+  }
+
+  /* Icône à côté du texte, sur une seule ligne, pour les 4 onglets. Pas de
+     répartition en quarts égaux (qui écrasait le gap icône/texte sur tous
+     les boutons pour laisser de la place à "Fourtoutici") : chaque bouton
+     garde sa taille naturelle et rétrécit proportionnellement si besoin. */
+  .modeBtn {
+    padding: 0.4rem 0.4rem;
+    font-size: 0.72rem;
+  }
+}
+
 .modeToggle {
   display: flex;
   width: 100%;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -32,10 +47,14 @@
   border: none;
   background: var(--color-bg3);
   color: var(--color-text-muted);
-  padding: 0.45rem 0.9rem;
+  padding: 0.45rem 0.5rem;
   font-size: 0.85rem;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.modeBtn svg {
+  flex-shrink: 0;
 }
 
 .modeBtnActive {
