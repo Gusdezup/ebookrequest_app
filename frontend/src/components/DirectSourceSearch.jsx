@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import axiosAdmin from '../axiosAdmin';
-import ShelfPicker from './ShelfPicker';
 import gStyles from './GoogleBooksSearch.module.css';
 import styles from './DirectSourceSearch.module.css';
 
@@ -114,12 +113,17 @@ const DirectSourceSearch = ({
   onCompleted,
   targetUserId,
   calibreEnabled,
-  calibreShelves = [],
-  extraTargetCandidates = [],
+  selectedShelves = [],
+  extraShelfSelections = {},
+  valentineEnabled = true,
+  fourtouticiEnabled = true,
 }) => {
+  const availableModes = MODES.filter(m => (m.value === 'fourtoutici' ? fourtouticiEnabled : valentineEnabled));
+
   const [mode, setMode] = useState(() => {
     const stored = localStorage.getItem('ebookrequest_direct_mode');
-    return VALID_MODES.includes(stored) ? stored : 'title';
+    if (VALID_MODES.includes(stored) && (stored === 'fourtoutici' ? fourtouticiEnabled : valentineEnabled)) return stored;
+    return availableModes[0]?.value || 'title';
   });
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -145,30 +149,6 @@ const DirectSourceSearch = ({
   const [batchDownloading, setBatchDownloading] = useState(false);
   const [batchProgress, setBatchProgress] = useState(null); // { current, total }
 
-  // Étagères — état local propre à ce flux (indépendant du formulaire manuel)
-  const [selectedShelves, setSelectedShelves] = useState(
-    calibreShelves.filter(s => s.isDefault).map(s => s.name)
-  );
-  const [extraShelfSelections, setExtraShelfSelections] = useState({});
-
-  useEffect(() => {
-    setSelectedShelves(calibreShelves.filter(s => s.isDefault).map(s => s.name));
-  }, [calibreShelves]);
-
-  const toggleShelf = (name) => {
-    setSelectedShelves(prev => prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]);
-  };
-
-  const toggleExtraShelf = (userId, shelfName) => {
-    setExtraShelfSelections(prev => {
-      const current = prev[userId] || [];
-      const next = current.includes(shelfName) ? current.filter(s => s !== shelfName) : [...current, shelfName];
-      const updated = { ...prev };
-      if (next.length) updated[userId] = next; else delete updated[userId];
-      return updated;
-    });
-  };
-
   const resetResults = () => {
     setTitleResults([]);
     setMatches([]);
@@ -186,6 +166,18 @@ const DirectSourceSearch = ({
     setHasSearched(false);
     resetResults();
   };
+
+  // Si la source active est désactivée par un admin en cours de session
+  // (retour sur /api/requests/*-source-status), on bascule sur la première
+  // source encore disponible plutôt que de laisser un onglet fantôme actif.
+  useEffect(() => {
+    const currentStillAvailable = mode === 'fourtoutici' ? fourtouticiEnabled : valentineEnabled;
+    if (!currentStillAvailable) {
+      const fallback = availableModes[0]?.value;
+      if (fallback && fallback !== mode) switchMode(fallback);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valentineEnabled, fourtouticiEnabled]);
 
   const runSearch = async (e) => {
     e?.preventDefault();
@@ -456,8 +448,6 @@ const DirectSourceSearch = ({
     </div>
   );
 
-  const shelfPickerVisible = calibreEnabled || extraTargetCandidates.length > 0;
-
   return (
     <div className={styles.directSearch}>
       <p className={styles.warningNote}>
@@ -468,19 +458,23 @@ const DirectSourceSearch = ({
         sans passer par les champs du formulaire.
       </p>
 
-      <div className={styles.modeToggle}>
-        {MODES.map(m => (
-          <button
-            key={m.value}
-            type="button"
-            className={`${styles.modeBtn} ${mode === m.value ? styles.modeBtnActive : ''}`}
-            onClick={() => switchMode(m.value)}
-          >
-            {MODE_ICONS[m.value]}
-            {m.label}
-          </button>
-        ))}
-      </div>
+      {availableModes.length === 0 ? (
+        <p className={styles.errorNote}>Aucune source de recherche directe n'est activée pour le moment.</p>
+      ) : (
+        <div className={styles.modeToggle}>
+          {availableModes.map(m => (
+            <button
+              key={m.value}
+              type="button"
+              className={`${styles.modeBtn} ${mode === m.value ? styles.modeBtnActive : ''}`}
+              onClick={() => switchMode(m.value)}
+            >
+              {MODE_ICONS[m.value]}
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <form onSubmit={runSearch} className={styles.searchRow}>
         <input
@@ -494,21 +488,6 @@ const DirectSourceSearch = ({
           {isLoading ? 'Recherche…' : 'Rechercher'}
         </button>
       </form>
-
-      {shelfPickerVisible && (
-        <div className={styles.shelfRow}>
-          <ShelfPicker
-            calibreEnabled={calibreEnabled}
-            calibreShelves={calibreShelves}
-            selectedShelves={selectedShelves}
-            toggleShelf={toggleShelf}
-            extraTargetCandidates={extraTargetCandidates}
-            extraShelfSelections={extraShelfSelections}
-            toggleExtraShelf={toggleExtraShelf}
-          />
-          <span className={styles.shelfHint}>S'applique au(x) prochain(s) livre(s) téléchargé(s)</span>
-        </div>
-      )}
 
       {message.text && (
         <div className={`${styles.message} ${styles[message.type] || ''}`}>{message.text}</div>
