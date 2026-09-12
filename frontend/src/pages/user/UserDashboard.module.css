@@ -567,6 +567,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1rem;
   margin-top: auto;
   padding-top: 0.6rem;
   border-top: 1px solid var(--color-border);
@@ -844,6 +845,32 @@
 
   .requestsGrid {
     gap: 0.65rem;
+  }
+
+  /* Le bouton "Modifier" apparaît désormais aussi sur les demandes terminées
+     (pas seulement en attente) — jusqu'à 9 icônes possibles sur une carte
+     (lien, lire, télécharger, étagères, signaler, messages, note, métadonnées,
+     modifier), qui grignotaient l'espace de .requestDate à droite jusqu'à la
+     tronquer sur mobile. Icônes resserrées au maximum + icône secondaire de
+     complétion masquée (l'info reste dans le tooltip) pour garder tout sur
+     une seule ligne sans scroll ni renvoi à la ligne. */
+  .actionIcons {
+    gap: 0.12rem;
+  }
+
+  .iconBtn {
+    width: 23px;
+    height: 23px;
+  }
+
+  .requestDate {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 0.7rem;
+  }
+
+  .downloadedDate {
+    display: none;
   }
 }
 

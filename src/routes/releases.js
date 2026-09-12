@@ -7,10 +7,7 @@ const { version: APP_VERSION } = require('../../package.json');
 
 const router = express.Router();
 
-// (patch) Pointe vers le fork perso, pas l'upstream zlimteck — sinon l'onglet
-// "Mises a jour" affiche les releases de Zlimteck au lieu des notres, et la
-// verification de mise a jour compare a la mauvaise version de reference.
-const GITHUB_REPO = 'Gusdezup/ebookrequest_app';
+const GITHUB_REPO = 'zlimteck/ebookrequest_app';
 
 // Compare deux versions semver — retourne > 0 si b est plus récent que a
 function semverGt(a, b) {

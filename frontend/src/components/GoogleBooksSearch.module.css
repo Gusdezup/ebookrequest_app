@@ -50,7 +50,8 @@
 
 /* ── Sélecteur de mode — boutons (harmonisé avec la recherche directe) ── */
 .modeToggle {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   flex-wrap: wrap;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -63,7 +64,8 @@
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  min-width: 130px;
+  flex: 1 1 auto;
+  min-width: 0;
   border: none;
   background: var(--color-bg3);
   color: var(--color-text-muted);
@@ -76,6 +78,12 @@
 .modeBtnActive {
   background: var(--color-accent);
   color: #fff;
+}
+
+@media (max-width: 640px) {
+  .warningNote {
+    display: none;
+  }
 }
 
 .inputWrap {

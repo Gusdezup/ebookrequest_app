@@ -180,6 +180,20 @@ curl https://app.ndd.fr/api/requests/direct-search-status \
   -H "Authorization: Bearer <token>"
 ```
 
+### `GET /api/requests/valentine-source-status` / `GET /api/requests/fourtoutici-source-status`
+Indique si la source Valentine / Fourtoutici est activée côté connecteur, pour que le front masque l'onglet correspondant dans la recherche directe (indépendant de `direct-search-status` ci-dessus, qui coupe toute la fonctionnalité).
+```bash
+curl https://app.ndd.fr/api/requests/fourtoutici-source-status \
+  -H "Authorization: Bearer <token>"
+```
+
+### `GET /api/requests/fourtoutici-search?q=Dune`
+Recherche directe et immédiate sur Fourtoutici (champ unique, pas de mode auteur/série).
+```bash
+curl "https://app.ndd.fr/api/requests/fourtoutici-search?q=Dune" \
+  -H "Authorization: Bearer <token>"
+```
+
 ### `GET /api/requests/direct-search?mode=title|author|series&q=...`
 Recherche immédiate sur Valentine. En mode `title`, renvoie une liste de livres directement téléchargeables. En mode `author`/`series`, renvoie une liste de fiches à explorer ensuite via `direct-search-books`.
 ```bash
@@ -195,7 +209,7 @@ curl "https://app.ndd.fr/api/requests/direct-search-books?type=author&url=/auteu
 ```
 
 ### `POST /api/requests/direct-download`
-Crée la demande et télécharge immédiatement le livre choisi (réponse synchrone), avec choix optionnel des étagères Calibre-Web cibles.
+Crée la demande et télécharge immédiatement le livre choisi (réponse synchrone), avec choix optionnel des étagères Calibre-Web cibles. Pour Valentine, utiliser `ebookId` ; pour Fourtoutici, ajouter `"source": "fourtoutici"` et utiliser `fileId` à la place.
 ```bash
 curl -X POST https://app.ndd.fr/api/requests/direct-download \
   -H "Authorization: Bearer <token>" \
@@ -208,6 +222,19 @@ curl -X POST https://app.ndd.fr/api/requests/direct-download \
     "publishedDate": "1965",
     "category": "ebook",
     "selectedShelves": ["Fantasy"]
+  }'
+```
+
+```bash
+curl -X POST https://app.ndd.fr/api/requests/direct-download \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "fourtoutici",
+    "fileId": "67890",
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "category": "ebook"
   }'
 ```
 
@@ -634,6 +661,41 @@ curl "https://app.ndd.fr/api/connectors/valentine/search?q=Dune" \
 ```bash
 curl "https://app.ndd.fr/api/connectors/annasarchive/search?q=Dune" \
   -H "Authorization: Bearer <token>"
+```
+
+### `GET /api/connectors/fourtoutici`
+```bash
+curl https://app.ndd.fr/api/connectors/fourtoutici \
+  -H "Authorization: Bearer <token>"
+```
+
+### `PUT /api/connectors/fourtoutici`
+```bash
+curl -X PUT https://app.ndd.fr/api/connectors/fourtoutici \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "url": "https://fourtoutici.cc"}'
+```
+
+### `GET /api/connectors/fourtoutici/search?q=Dune`
+```bash
+curl "https://app.ndd.fr/api/connectors/fourtoutici/search?q=Dune" \
+  -H "Authorization: Bearer <token>"
+```
+
+### `GET /api/connectors/fourtoutici/ping`
+```bash
+curl https://app.ndd.fr/api/connectors/fourtoutici/ping \
+  -H "Authorization: Bearer <token>"
+```
+
+### `POST /api/connectors/fourtoutici/download`
+Déclenchement manuel depuis les résultats de recherche.
+```bash
+curl -X POST https://app.ndd.fr/api/connectors/fourtoutici/download \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"fileId": "12345", "requestId": "ID"}'
 ```
 
 ### `GET /api/connectors/predb`
